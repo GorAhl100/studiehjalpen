@@ -1,0 +1,90 @@
+/* Teman: allt utseende styrs av variablerna nedan. Ett nytt tema = ett nytt [data-tema]-block. */
+[data-tema="lekfull"] {
+  --bg: #fff8e7;
+  --yta: #ffffff;
+  --text: #22223b;
+  --dämpad: #6b6b80;
+  --kant: #e9dfc4;
+  --accent: #ff7b54;
+  --accent-text: #ffffff;
+  --andra: #4d96ff;
+  --ratt: #2ea44f;
+  --ratt-bg: #dff6e5;
+  --fel: #d64545;
+  --fel-bg: #fde4e4;
+  --guld: #f5b700;
+  --radie: 18px;
+  --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  [data-tema="lekfull"] {
+    --bg: #1c1b2e; --yta: #28273f; --text: #f3f1ff; --dämpad: #b4b2cc; --kant: #3c3a5a;
+    --accent: #ff8f6b; --accent-text: #1c1b2e; --andra: #7cb2ff;
+    --ratt: #5fd38a; --ratt-bg: #1f3d2c; --fel: #ff8080; --fel-bg: #4a2228; --guld: #ffd34d;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 18px/1.55 var(--font); letter-spacing: 0.01em;
+  padding-top: max(16px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 560px; margin: 0 auto; display: grid; gap: 16px; }
+h1 { font-size: 1.7rem; line-height: 1.2; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.25rem; margin: 0; }
+p { margin: 0; }
+.liten { font-size: 0.9rem; color: var(--dämpad); }
+.kort { background: var(--yta); border: 2px solid var(--kant); border-radius: var(--radie); padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.rad { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.mellan { justify-content: space-between; }
+.stapel { display: grid; gap: 10px; }
+
+button, .knapp {
+  font: inherit; font-weight: 700; min-height: 52px; padding: 12px 18px;
+  border-radius: 14px; border: 2px solid var(--kant); background: var(--yta); color: var(--text);
+  cursor: pointer; text-align: left; touch-action: manipulation;
+}
+button.primär { background: var(--accent); border-color: var(--accent); color: var(--accent-text); text-align: center; }
+button.liten-knapp { min-height: 40px; padding: 6px 12px; font-size: 0.9rem; font-weight: 600; }
+button.lyssna { min-width: 52px; text-align: center; font-size: 1.3rem; padding: 6px 10px; }
+button:disabled { opacity: 0.55; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--andra); outline-offset: 2px; }
+
+input[type="text"], input[type="date"], select, textarea {
+  font: inherit; padding: 12px; border-radius: 12px; border: 2px solid var(--kant);
+  background: var(--bg); color: var(--text); width: 100%;
+}
+label { display: grid; gap: 4px; font-weight: 700; }
+
+.profil { display: flex; align-items: center; gap: 14px; width: 100%; }
+.avatar { font-size: 2rem; line-height: 1; }
+.avatarval { display: flex; flex-wrap: wrap; gap: 8px; }
+.avatarval button { font-size: 1.8rem; min-width: 56px; text-align: center; padding: 6px; }
+.avatarval button[aria-pressed="true"] { border-color: var(--accent); background: var(--bg); }
+
+.fråga-text { font-size: 1.5rem; font-weight: 800; line-height: 1.3; text-wrap: balance; }
+.alternativ { display: grid; gap: 10px; }
+.alternativ button { font-size: 1.2rem; font-weight: 700; }
+.alternativ button.rätt { background: var(--ratt-bg); border-color: var(--ratt); }
+.alternativ button.fel { background: var(--fel-bg); border-color: var(--fel); }
+.återkoppling { padding: 12px; border-radius: 12px; font-weight: 700; }
+.återkoppling.rätt { background: var(--ratt-bg); color: var(--text); }
+.återkoppling.fel { background: var(--fel-bg); color: var(--text); }
+.källa { font-weight: 400; font-style: italic; margin-top: 6px; }
+.mätare { height: 10px; background: var(--kant); border-radius: 999px; overflow: hidden; }
+.mätare > div { height: 100%; background: var(--andra); }
+.stjärnor { font-size: 2.6rem; letter-spacing: 0.1em; text-align: center; }
+.album { display: flex; flex-wrap: wrap; gap: 8px; font-size: 2rem; }
+.nivå { font-size: 0.85rem; color: var(--dämpad); }
+.kod { font-family: ui-monospace, Menlo, monospace; font-size: 0.75rem; word-break: break-all; }
+.ok { color: var(--ratt); font-weight: 700; }
+.inte-ok { color: var(--fel); font-weight: 700; }
+ul.lista { margin: 0; padding-left: 20px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

@@ -1,0 +1,533 @@
+<title>Studiehjälpen Skaparen</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: en smal kolumn i steg uppifrån och ned, byggd för mobilen. */
+  :root {
+    --bg: #f3f6fb;
+    --yta: #ffffff;
+    --text: #1d2433;
+    --dämpad: #5b6478;
+    --kant: #d5dcea;
+    --accent: #2f6fe4;
+    --accent-text: #ffffff;
+    --varning: #b8620b;
+    --varning-bg: #fff3e2;
+    --fel: #c0392b;
+    --ok: #1f8a4c;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141823; --yta: #1d2230; --text: #e7ebf3; --dämpad: #a1aac0; --kant: #343b4f;
+      --accent: #6d9cff; --accent-text: #0d1220; --varning: #f0a54a; --varning-bg: #3a2b17;
+      --fel: #ff7a6b; --ok: #5fd08f; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141823; --yta: #1d2230; --text: #e7ebf3; --dämpad: #a1aac0; --kant: #343b4f;
+    --accent: #6d9cff; --accent-text: #0d1220; --varning: #f0a54a; --varning-bg: #3a2b17;
+    --fel: #ff7a6b; --ok: #5fd08f; color-scheme: dark;
+  }
+  body {
+    background: var(--bg); color: var(--text); font: 16px/1.5 var(--font);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 20px 48px;
+  }
+  main { max-width: 640px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 { font-size: 1.6rem; margin: 0; text-wrap: balance; }
+  h2 { font-size: 1.1rem; margin: 0; }
+  p { margin: 0; }
+  .liten { font-size: 0.875rem; color: var(--dämpad); }
+  section { background: var(--yta); border: 1px solid var(--kant); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+  label { display: grid; gap: 4px; font-weight: 600; }
+  input[type="text"], input[type="url"], input[type="number"], select, textarea {
+    font: inherit; padding: 10px 12px; border: 1px solid var(--kant); border-radius: 8px;
+    background: var(--bg); color: var(--text); width: 100%; box-sizing: border-box;
+  }
+  textarea { min-height: 120px; resize: vertical; }
+  .val { display: flex; flex-wrap: wrap; gap: 8px; }
+  .val label { display: flex; align-items: center; gap: 6px; font-weight: 500; padding: 8px 12px; border: 1px solid var(--kant); border-radius: 999px; cursor: pointer; }
+  .val label:has(input:checked) { border-color: var(--accent); outline: 2px solid var(--accent); }
+  button {
+    font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--kant);
+    background: var(--yta); color: var(--text); cursor: pointer;
+  }
+  button.primär { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .rad { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .status { padding: 12px; border-radius: 8px; background: var(--bg); }
+  .status.fel { color: var(--fel); }
+  .filer { margin: 0; padding-left: 20px; }
+  .tabell { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--kant); vertical-align: top; }
+  tr.osäker td { background: var(--varning-bg); }
+  .märke { color: var(--varning); font-weight: 700; }
+  .kod { font-family: var(--mono); font-size: 0.75rem; word-break: break-all; max-height: 96px; overflow: auto; padding: 8px; background: var(--bg); border-radius: 8px; }
+  .fråga { border-top: 1px solid var(--kant); padding-top: 8px; display: grid; gap: 2px; }
+  .fråga.osäker { background: var(--varning-bg); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main>
+  <header style="display:grid;gap:4px">
+    <h1>Skaparen</h1>
+    <p class="liten">Testversion. Gör om foton, PDF och Word till övningar för Studiehjälpen. Endast för vuxna.</p>
+  </header>
+
+  <section aria-labelledby="h-inst">
+    <h2 id="h-inst">Inställningar</h2>
+    <label for="appadress">Övningsappens adress
+      <input id="appadress" type="url" placeholder="https://…/ovning/">
+    </label>
+    <p class="liten">Fylls i en gång. Länkarna du skickar till barnen pekar hit.</p>
+  </section>
+
+  <section aria-labelledby="h-typ">
+    <h2 id="h-typ">1. Vad ska det bli?</h2>
+    <div class="val" role="radiogroup" aria-label="Typ">
+      <label><input type="radio" name="typ" value="glosor" checked> Glosor</label>
+      <label><input type="radio" name="typ" value="fakta"> Faktatext</label>
+    </div>
+    <label for="språk" id="språk-rad">Språk
+      <select id="språk">
+        <option value="en">Svenska – engelska</option>
+        <option value="es">Svenska – spanska</option>
+        <option value="annat">Annat språk…</option>
+      </select>
+    </label>
+    <label for="annat-språk" id="annat-rad" hidden>Vilket språk?
+      <input id="annat-språk" type="text" placeholder="t.ex. tyska">
+    </label>
+    <label for="ålder">Ålder på den som ska plugga
+      <input id="ålder" type="number" min="5" max="99" value="12" inputmode="numeric">
+    </label>
+  </section>
+
+  <section aria-labelledby="h-mat">
+    <h2 id="h-mat">2. Material</h2>
+    <label for="filer">Foton, PDF eller Word
+      <input id="filer" type="file" multiple accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+    </label>
+    <ul class="filer liten" id="fillista"></ul>
+    <label for="klistra">…eller klistra in text
+      <textarea id="klistra" placeholder="hund – dog&#10;katt – cat"></textarea>
+    </label>
+    <p class="liten" id="gräns">Högst 10 sidor per material.</p>
+  </section>
+
+  <section aria-labelledby="h-skapa">
+    <h2 id="h-skapa">3. Skapa</h2>
+    <div class="rad">
+      <button class="primär" id="skapa">Skapa material</button>
+      <button id="stopp" hidden>Avbryt</button>
+    </div>
+    <p class="status" id="status" hidden></p>
+  </section>
+
+  <section aria-labelledby="h-res" id="resultat" hidden>
+    <h2 id="h-res">4. Resultat</h2>
+    <label for="titel">Namn på materialet
+      <input id="titel" type="text">
+    </label>
+    <p class="liten" id="osäker-info"></p>
+    <div id="förhandsvisning"></div>
+    <div class="rad">
+      <button class="primär" id="kopiera-länk">Kopiera länk</button>
+      <button id="kopiera-kod">Kopiera kod</button>
+    </div>
+    <p class="status" id="kopiera-status" hidden></p>
+    <p class="liten">Klistra in länken i ett sms till barnet. Om länken inte fungerar kan koden klistras in i Övningsappen.</p>
+    <div class="kod" id="kod"></div>
+  </section>
+
+  <section aria-labelledby="h-diag">
+    <h2 id="h-diag">Testinfo</h2>
+    <p class="liten" id="diag">Kontrollerar…</p>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script>
+const MAX_SIDOR = 10;
+const SPRÅKNAMN = { en: "engelska", es: "spanska" };
+const $ = (id) => document.getElementById(id);
+
+let sample = null;
+let bildgräns = null;   // limits().images, eller null om bilder inte går
+let material = null;    // senaste resultatet
+let pågående = null;    // AbortController
+
+// ---------- Inställningar ----------
+function läsInställning(nyckel) { try { return localStorage.getItem(nyckel) || ""; } catch { return ""; } }
+function sparaInställning(nyckel, värde) { try { localStorage.setItem(nyckel, värde); } catch {} }
+$("appadress").value = läsInställning("skaparen.appadress");
+$("appadress").addEventListener("change", (e) => sparaInställning("skaparen.appadress", e.target.value.trim()));
+
+// ---------- Formulär ----------
+function valdTyp() { return document.querySelector('input[name="typ"]:checked').value; }
+function uppdateraFormulär() {
+  const glosor = valdTyp() === "glosor";
+  $("språk-rad").hidden = !glosor;
+  $("annat-rad").hidden = !glosor || $("språk").value !== "annat";
+}
+document.querySelectorAll('input[name="typ"]').forEach((r) => r.addEventListener("change", uppdateraFormulär));
+$("språk").addEventListener("change", uppdateraFormulär);
+uppdateraFormulär();
+
+$("filer").addEventListener("change", () => {
+  const lista = $("fillista");
+  lista.replaceChildren();
+  for (const f of $("filer").files) {
+    const li = document.createElement("li");
+    li.textContent = `${f.name} (${Math.round(f.size / 1024)} kB)`;
+    lista.append(li);
+  }
+});
+
+// ---------- Filer till bilder och text ----------
+const BILDTYPER = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+async function tillJpeg(källa) {
+  // källa: Blob eller canvas. Skalar ned till max 2000 px på längsta sidan.
+  let bild = källa;
+  if (källa instanceof Blob) bild = await createImageBitmap(källa);
+  const skala = Math.min(1, 2000 / Math.max(bild.width, bild.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bild.width * skala);
+  c.height = Math.round(bild.height * skala);
+  c.getContext("2d").drawImage(bild, 0, 0, c.width, c.height);
+  return await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.85));
+}
+
+async function pdfTillBilder(fil, plats) {
+  const data = new Uint8Array(await fil.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const bilder = [];
+  const antal = Math.min(pdf.numPages, plats);
+  for (let i = 1; i <= antal; i++) {
+    const sida = await pdf.getPage(i);
+    const vy = sida.getViewport({ scale: 1 });
+    const skala = 1600 / Math.max(vy.width, vy.height);
+    const vy2 = sida.getViewport({ scale: skala });
+    const c = document.createElement("canvas");
+    c.width = Math.round(vy2.width); c.height = Math.round(vy2.height);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    await sida.render({ canvasContext: ctx, viewport: vy2 }).promise;
+    bilder.push(await tillJpeg(c));
+  }
+  return { bilder, hoppadeÖver: pdf.numPages - antal };
+}
+
+async function samlaIn() {
+  const bilder = [];
+  const texter = [];
+  const varningar = [];
+  const gräns = MAX_SIDOR;
+  for (const f of $("filer").files) {
+    const namn = f.name.toLowerCase();
+    if (f.type === "application/pdf" || namn.endsWith(".pdf")) {
+      if (!bildgräns) throw new Error("Den här vyn kan inte skicka bilder till Claude, så PDF går inte här.");
+      const { bilder: b, hoppadeÖver } = await pdfTillBilder(f, gräns - bilder.length);
+      bilder.push(...b);
+      if (hoppadeÖver > 0) varningar.push(`${f.name}: ${hoppadeÖver} sidor togs inte med (max ${gräns}).`);
+    } else if (namn.endsWith(".docx")) {
+      const { value } = await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() });
+      texter.push(value.trim());
+    } else if (f.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|webp|gif)$/.test(namn)) {
+      if (!bildgräns) throw new Error("Den här vyn kan inte skicka bilder till Claude.");
+      if (bilder.length >= gräns) { varningar.push(`${f.name} togs inte med (max ${gräns} sidor).`); continue; }
+      bilder.push(BILDTYPER.includes(f.type) && f.size < 4e6 ? f : await tillJpeg(f));
+    } else {
+      varningar.push(`${f.name}: filtypen stöds inte.`);
+    }
+  }
+  const klistrad = $("klistra").value.trim();
+  if (klistrad) texter.push(klistrad);
+  return { bilder, text: texter.join("\n\n---\n\n").slice(0, 60000), varningar };
+}
+
+// ---------- Instruktioner till Claude ----------
+function språkInfo() {
+  const v = $("språk").value;
+  if (v === "annat") {
+    const namn = $("annat-språk").value.trim() || "det andra språket";
+    return { kod: namn.toLowerCase().slice(0, 12), namn };
+  }
+  return { kod: v, namn: SPRÅKNAMN[v] };
+}
+
+const OSÄKER_REGEL = `- "osaker": sätt true ENDAST om du inte kunde läsa just den delen säkert, till exempel för att den var suddig, avklippt, överstruken eller skriven med svårläst handstil. Om texten gick att läsa tydligt ska det vara false, även om ordet är ovanligt eller svårt. Normalt ska nästan alla vara false.`;
+
+function avskriftInstruktion(från, till, totalt) {
+  return `Bilderna är sidorna ${från}–${till} av ${totalt} ur ett skolmaterial. Skriv av all text ordagrant, sida för sida, i läsordning.
+Skriv "[Sida N]" före varje sida. Beskriv bilder, kartor och diagram kort inom hakparentes, till exempel [Bild: karta över Norden med vikingarnas resvägar].
+Skriv [oläsligt] där du inte kan läsa texten säkert. Svara bara med avskriften.`;
+}
+
+function glosInstruktion(språk, ålder, harBilder, text) {
+  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga glosor mellan svenska och ${språk.namn}.
+${harBilder ? "Bilderna är foton eller sidor ur en glosbok, ett glosblad eller en läxa." : ""}
+${text ? "Text från materialet:\n<<<\n" + text + "\n>>>" : ""}
+
+Hitta alla ordpar (glosor) mellan svenska och ${språk.namn}. Regler:
+- Ta bara med ordpar som faktiskt finns i materialet. Hitta inte på egna.
+- Svenska skrivs utan artikel (hund, inte en hund).
+- Engelska substantiv skrivs utan artikel (dog).
+- Spanska substantiv skrivs ALLTID med bestämd artikel så att genus syns (el perro, la casa, los zapatos). Lägg till artikeln om materialet saknar den.
+- För andra språk: följ hur ord brukar läras in i skolan.
+- Ett rätt svar per glosa. Om materialet anger flera betydelser, välj den första.
+${OSÄKER_REGEL}
+- Ge materialet en kort titel på svenska, till exempel "Spanska kapitel 3" eller "Engelska djur".
+
+Svara ENDAST med JSON i exakt den här formen:
+{"titel": "Engelska djur", "glosor": [{"sv": "hund", "ut": "dog", "osaker": false}]}`;
+}
+
+function faktaInstruktion(ålder, harBilder, text) {
+  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga inför ett prov.
+${harBilder ? "Bilderna är foton eller sidor ur en lärobok eller ett faktablad." : ""}
+${text ? "Text från materialet:\n<<<\n" + text + "\n>>>" : ""}
+
+Gör ett studiepaket på svenska av materialet. Anpassa språket efter åldern ${ålder} år. Regler:
+- Allt i "sammanfattning", "begrepp" och "fragor" ska komma från materialet. Hitta inte på fakta.
+- "sammanfattning": högst 120 ord, enkelt språk.
+- "begrepp": 5–15 viktiga ord med en kort förklaring (max 12 ord).
+- "fragor": 20 frågor. Blanda typerna "flerval" (cirka 15) och "santfalskt" (cirka 5).
+  - flerval: "fraga", "ratt" (rätt svar), "fel" (exakt 5 felaktiga men rimliga svar, lika långa som rätt svar).
+  - santfalskt: "pastaende" och "sant" (true/false).
+  - "niva": 1 för minnesfrågor (vem, vad, när), 2 för förståelsefrågor (varför, vad hände sedan).
+  - "kalla": det korta stycke ur materialet (max 30 ord) som svaret bygger på, ordagrant.
+  ${OSÄKER_REGEL}
+- "titel": kort titel på svenska, till exempel "Vikingatiden".
+
+Svara ENDAST med JSON i exakt den här formen:
+{"titel": "...", "sammanfattning": "...", "begrepp": [{"ord": "...", "forklaring": "..."}],
+ "fragor": [{"typ": "flerval", "fraga": "...", "ratt": "...", "fel": ["...","...","...","...","..."], "niva": 1, "kalla": "...", "osaker": false},
+            {"typ": "santfalskt", "pastaende": "...", "sant": true, "niva": 1, "kalla": "...", "osaker": false}]}`;
+}
+
+// ---------- Kontroll av svaret ----------
+const str = (x) => (typeof x === "string" ? x.trim() : "");
+
+function städaGlosor(svar) {
+  const glosor = (Array.isArray(svar?.glosor) ? svar.glosor : [])
+    .map((g) => ({ sv: str(g.sv), ut: str(g.ut), osaker: g.osaker === true }))
+    .filter((g) => g.sv && g.ut);
+  if (!glosor.length) throw new Error("Claude hittade inga glosor i materialet.");
+  return { titel: str(svar.titel), glosor };
+}
+
+function städaFakta(svar) {
+  const fragor = (Array.isArray(svar?.fragor) ? svar.fragor : []).map((f) => {
+    const bas = { niva: f.niva === 2 ? 2 : 1, kalla: str(f.kalla), osaker: f.osaker === true };
+    if (f.typ === "santfalskt" && str(f.pastaende) && typeof f.sant === "boolean")
+      return { typ: "santfalskt", pastaende: str(f.pastaende), sant: f.sant, ...bas };
+    const fel = (Array.isArray(f.fel) ? f.fel : []).map(str).filter(Boolean);
+    if (str(f.fraga) && str(f.ratt) && fel.length >= 2)
+      return { typ: "flerval", fraga: str(f.fraga), ratt: str(f.ratt), fel: fel.slice(0, 5), ...bas };
+    return null;
+  }).filter(Boolean);
+  if (!fragor.length) throw new Error("Claude kunde inte göra några frågor av materialet.");
+  const begrepp = (Array.isArray(svar.begrepp) ? svar.begrepp : [])
+    .map((b) => ({ ord: str(b.ord), forklaring: str(b.forklaring) })).filter((b) => b.ord && b.forklaring);
+  return { titel: str(svar.titel), sammanfattning: str(svar.sammanfattning), begrepp, fragor };
+}
+
+// ---------- Skapa ----------
+const FELTEXT = {
+  not_granted: "Du har inte tillåtit sidan att använda Claude. Ladda om sidan och tillåt när frågan kommer.",
+  rate_limited: "Din Claude-gräns är nådd för stunden. Försök igen senare.",
+  session_expired: "Du behöver logga in på claude.ai igen.",
+  image_rejected: "En av bilderna gick inte att läsa. Prova ett annat foto.",
+  images_unavailable: "Den här vyn kan inte skicka bilder till Claude.",
+  refused: "Claude kunde inte hantera materialet. Prova med andra sidor.",
+  invalid_json: "Claude svarade i fel format. Tryck på Skapa igen.",
+  prompt_too_large: "Materialet är för stort. Prova med färre sidor.",
+  sampling_disabled: "Claude är inte tillgängligt för det här kontot.",
+};
+
+function visaStatus(text, fel = false) {
+  const s = $("status");
+  s.hidden = false; s.textContent = text; s.classList.toggle("fel", fel);
+}
+
+$("skapa").addEventListener("click", async () => {
+  if (!sample) return visaStatus("Claude är inte tillgängligt här. Öppna sidan på claude.ai.", true);
+  const typ = valdTyp();
+  const ålder = Math.max(5, Math.min(99, parseInt($("ålder").value, 10) || 12));
+  $("skapa").disabled = true;
+  $("resultat").hidden = true;
+  try {
+    visaStatus("Förbereder filerna…");
+    const { bilder, text, varningar } = await samlaIn();
+    if (!bilder.length && !text) throw new Error("Välj en fil eller klistra in text först.");
+    const språk = språkInfo();
+    pågående = new AbortController();
+    $("stopp").hidden = false;
+    const start = performance.now();
+    const perGång = bildgräns?.maxCount ?? 1;
+    const omgångar = [];
+    for (let i = 0; i < bilder.length; i += perGång) omgångar.push(bilder.slice(i, i + perGång));
+    const fråga = (instruktion, images) => sample.json(instruktion, { images, signal: pågående.signal, modelTier: "default" });
+
+    let innehåll;
+    if (typ === "glosor") {
+      // Glosor: en omgång per grupp av bilder, sedan slås listorna ihop.
+      const delar = [];
+      if (!omgångar.length) delar.push(städaGlosor(await (visaStatus("Claude läser texten…"), fråga(glosInstruktion(språk, ålder, false, text)))));
+      for (const [i, grupp] of omgångar.entries()) {
+        visaStatus(`Claude läser ${omgångar.length > 1 ? `del ${i + 1} av ${omgångar.length}` : `${grupp.length} sidor`}…`);
+        delar.push(städaGlosor(await fråga(glosInstruktion(språk, ålder, true, i === 0 ? text : ""), grupp)));
+      }
+      const sett = new Set();
+      innehåll = { titel: delar[0].titel, glosor: delar.flatMap((d) => d.glosor).filter((g) => {
+        const k = (g.sv + "|" + g.ut).toLowerCase(); if (sett.has(k)) return false; sett.add(k); return true; }) };
+    } else if (omgångar.length > 1) {
+      // Faktatext med fler sidor än en omgång rymmer: skriv av sidorna först, gör sedan frågor av hela texten.
+      const avskrifter = [];
+      let sida = 1;
+      for (const [i, grupp] of omgångar.entries()) {
+        visaStatus(`Claude läser sidorna ${sida}–${sida + grupp.length - 1} av ${bilder.length}…`);
+        const { text: avskrift } = await sample(avskriftInstruktion(sida, sida + grupp.length - 1, bilder.length), { images: grupp, signal: pågående.signal, modelTier: "default" });
+        avskrifter.push(avskrift);
+        sida += grupp.length;
+      }
+      visaStatus("Claude gör frågor av hela texten…");
+      innehåll = städaFakta(await fråga(faktaInstruktion(ålder, false, [...avskrifter, text].filter(Boolean).join("\n\n"))));
+    } else {
+      visaStatus(`Claude läser ${bilder.length ? bilder.length + " sidor" : "texten"}… Det kan ta upp till en minut.`);
+      innehåll = städaFakta(await fråga(faktaInstruktion(ålder, bilder.length > 0, text), bilder.length ? bilder : undefined));
+    }
+    const sekunder = Math.round((performance.now() - start) / 1000);
+
+    material = {
+      v: 1,
+      id: crypto.randomUUID().slice(0, 8),
+      typ,
+      titel: innehåll.titel || (typ === "glosor" ? "Glosor" : "Faktatext"),
+      skapad: new Date().toISOString().slice(0, 10),
+      ålder,
+      ...(typ === "glosor" ? { språk: { från: "sv", till: språk.kod, namn: språk.namn }, glosor: innehåll.glosor }
+                          : { sammanfattning: innehåll.sammanfattning, begrepp: innehåll.begrepp, fragor: innehåll.fragor }),
+    };
+    visaStatus(`Klart på ${sekunder} sekunder.${varningar.length ? " " + varningar.join(" ") : ""}`);
+    await visaResultat();
+  } catch (e) {
+    if (e?.code === "cancelled") visaStatus("Avbrutet.");
+    else visaStatus(FELTEXT[e?.code] || e?.message || "Något gick fel. Försök igen.", true);
+  } finally {
+    $("skapa").disabled = false;
+    $("stopp").hidden = true;
+    pågående = null;
+  }
+});
+$("stopp").addEventListener("click", () => pågående?.abort());
+
+// ---------- Visa resultat ----------
+function cell(rad, text) { const td = document.createElement("td"); td.textContent = text; rad.append(td); }
+
+async function visaResultat() {
+  $("titel").value = material.titel;
+  const yta = $("förhandsvisning");
+  yta.replaceChildren();
+  let osäkra = 0;
+  if (material.typ === "glosor") {
+    const wrap = document.createElement("div"); wrap.className = "tabell";
+    const t = document.createElement("table");
+    const huvud = t.insertRow(); ["Svenska", material.språk.namn[0].toUpperCase() + material.språk.namn.slice(1)].forEach((h) => { const th = document.createElement("th"); th.textContent = h; huvud.append(th); });
+    for (const g of material.glosor) {
+      const r = t.insertRow();
+      if (g.osaker) { r.className = "osäker"; osäkra++; }
+      cell(r, g.sv); cell(r, g.ut + (g.osaker ? " ⚠️" : ""));
+    }
+    wrap.append(t); yta.append(wrap);
+  } else {
+    const sam = document.createElement("p"); sam.textContent = material.sammanfattning; yta.append(sam);
+    const bh = document.createElement("p"); bh.className = "liten";
+    bh.textContent = "Begrepp: " + material.begrepp.map((b) => b.ord).join(", ");
+    yta.append(bh);
+    material.fragor.forEach((f, i) => {
+      const d = document.createElement("div"); d.className = "fråga" + (f.osaker ? " osäker" : "");
+      if (f.osaker) osäkra++;
+      const q = document.createElement("strong");
+      q.textContent = `${i + 1}. ${f.typ === "flerval" ? f.fraga : f.pastaende}${f.osaker ? " ⚠️" : ""}`;
+      const a = document.createElement("span"); a.className = "liten";
+      a.textContent = f.typ === "flerval" ? `Rätt: ${f.ratt} · Fel: ${f.fel.join(", ")}` : (f.sant ? "Sant" : "Falskt");
+      d.append(q, a); yta.append(d);
+    });
+  }
+  $("osäker-info").textContent = osäkra
+    ? `${osäkra} rader är markerade med ⚠️ eftersom Claude var osäker. Barnet kan rätta dem i appen.`
+    : "Inget var osäkert.";
+  $("resultat").hidden = false;
+  await uppdateraKod();
+}
+$("titel").addEventListener("input", async () => { if (material) { material.titel = $("titel").value.trim() || material.titel; await uppdateraKod(); } });
+
+// ---------- Packa till länk ----------
+function b64url(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function packa(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (typeof CompressionStream === "function") {
+    const ström = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+    return "z" + b64url(new Uint8Array(await new Response(ström).arrayBuffer()));
+  }
+  return "j" + b64url(bytes);
+}
+
+let senasteKod = "";
+async function uppdateraKod() {
+  senasteKod = await packa(material);
+  $("kod").textContent = senasteKod;
+}
+function länk() {
+  const bas = $("appadress").value.trim();
+  if (!bas) return null;
+  return bas.replace(/#.*$/, "") + "#m=" + senasteKod;
+}
+async function kopiera(text, beskrivning) {
+  const s = $("kopiera-status"); s.hidden = false; s.classList.remove("fel");
+  try {
+    await navigator.clipboard.writeText(text);
+    s.textContent = `${beskrivning} kopierad (${text.length} tecken).`;
+  } catch {
+    const r = document.createRange(); r.selectNodeContents($("kod"));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    s.textContent = "Kunde inte kopiera automatiskt. Koden är markerad, kopiera den själv.";
+  }
+}
+$("kopiera-länk").addEventListener("click", () => {
+  const l = länk();
+  if (!l) { const s = $("kopiera-status"); s.hidden = false; s.classList.add("fel"); s.textContent = "Fyll i Övningsappens adress under Inställningar först."; return; }
+  kopiera(l, "Länken");
+});
+$("kopiera-kod").addEventListener("click", () => kopiera(senasteKod, "Koden"));
+
+// ---------- Start ----------
+(async () => {
+  const delar = [];
+  delar.push(typeof pdfjsLib !== "undefined" ? "PDF-läsare: ok" : "PDF-läsare: laddades inte");
+  delar.push(typeof mammoth !== "undefined" ? "Word-läsare: ok" : "Word-läsare: laddades inte");
+  delar.push(typeof CompressionStream === "function" ? "Komprimering: ok" : "Komprimering: saknas");
+  try { sample = window.claude ? await window.claude.use("sample") : null; } catch { sample = null; }
+  if (sample) {
+    try { bildgräns = (await sample.limits()).images ?? null; } catch { bildgräns = null; }
+    delar.unshift(bildgräns ? `Claude: ok, upp till ${bildgräns.maxCount} bilder per gång` : "Claude: ok, men bilder går inte i den här vyn");
+  } else {
+    delar.unshift("Claude: inte tillgängligt här");
+    $("skapa").disabled = true;
+  }
+  $("diag").textContent = delar.join(" · ");
+})();
+</script>
