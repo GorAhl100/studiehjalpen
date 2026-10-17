@@ -166,7 +166,7 @@ let pågående = null;    // AbortController
 // ---------- Inställningar ----------
 function läsInställning(nyckel) { try { return localStorage.getItem(nyckel) || ""; } catch { return ""; } }
 function sparaInställning(nyckel, värde) { try { localStorage.setItem(nyckel, värde); } catch {} }
-$("appadress").value = läsInställning("skaparen.appadress");
+$("appadress").value = läsInställning("skaparen.appadress") || "https://gorahl100.github.io/studiehjalpen/";
 $("appadress").addEventListener("change", (e) => sparaInställning("skaparen.appadress", e.target.value.trim()));
 
 // ---------- Formulär ----------
