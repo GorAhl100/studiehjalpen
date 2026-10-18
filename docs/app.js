@@ -664,7 +664,7 @@ function vyResultat(m, omgång, stjärnor, nya) {
     h("button", { class: "primär", onclick: () => vyÖva(m, omgång.svarade || 10) }, "Öva igen"),
     h("button", { onclick: vyHem }, "Till startsidan"),
   );
-  if (nya.length) setTimeout(Ljud.klistermärke, 300);
+  if (nya.length) Ljud.klistermärke();
 }
 
 function vyRätta(m, kort, fortsätt) {
