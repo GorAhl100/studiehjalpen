@@ -99,17 +99,11 @@
   .emojival button { font-size: 1.6rem; min-width: 52px; text-align: center; padding: 4px; }
   .emojival button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-ljus); }
   details summary { cursor: pointer; font-weight: 600; }
+  [hidden] { display: none !important; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
 <main>
-  <header class="rad mellan">
-    <h1>Skaparen</h1>
-  </header>
-  <div class="flikar" role="tablist">
-    <button id="flik-ny" role="tab" aria-selected="true">✨ Ny läxa</button>
-    <button id="flik-läxor" role="tab" aria-selected="false">📚 Mina läxor</button>
-  </div>
   <div id="vy" style="display:grid;gap:16px"></div>
   <details class="liten">
     <summary>Teknisk information</summary>
@@ -149,21 +143,13 @@ function h(tagg, attr = {}, ...barn) {
   for (const b of barn.flat()) if (b !== null && b !== undefined && b !== false) el.append(b);
   return el;
 }
-function visa(...delar) { $("vy").replaceChildren(...delar.filter((d) => d != null && d !== false)); window.scrollTo(0, 0); }
-
-// ---------- Flikar ----------
-function väljFlik(vilken) {
-  $("flik-ny").setAttribute("aria-selected", String(vilken === "ny"));
-  $("flik-läxor").setAttribute("aria-selected", String(vilken === "läxor"));
-  if (vilken === "ny") { if (!pågående) börjaOm(); } else vyLäxor();
-}
-$("flik-ny").addEventListener("click", () => väljFlik("ny"));
-$("flik-läxor").addEventListener("click", () => väljFlik("läxor"));
+function visa(...delar) { visasNu = "annat"; $("vy").replaceChildren(...delar.filter((d) => d != null && d !== false)); window.scrollTo(0, 0); }
 
 // ---------- Personer ----------
 const ålderFör = (p) => (p?.födelseår ? new Date().getFullYear() - p.födelseår : 12);
 const språkFör = (kod, namn) => ({ kod, namn: SPRÅK[kod] ?? namn ?? kod });
 const personNamn = (id) => personer.find((p) => p.id === id);
+const läxorFör = (p) => senasteLäxor.filter((l) => (p ? l.för === p.id : !personNamn(l.för)));
 async function sparaPersoner() {
   try { localStorage.setItem("skaparen.personer", JSON.stringify(personer)); } catch {}
   if (samling) { try { await samling.doc("_personer").set({ personer }); } catch {} }
@@ -177,60 +163,74 @@ function vyPerson(p = null) {
   const född = h("select", { id: "p-född" }, h("option", { value: "" }, "Vuxen"),
     ...Array.from({ length: 16 }, (_, i) => år - 5 - i).map((y) => h("option", { value: y }, `${y} (${år - y} år)`)));
   född.value = p ? (p.födelseår ?? "") : år - 10;
-  const språk = h("select", { id: "p-språk" }, h("option", { value: "en" }, "Engelska"), h("option", { value: "es" }, "Spanska"), h("option", { value: "annat" }, "Annat"));
-  språk.value = p ? (SPRÅK[p.språk] ? p.språk : "annat") : "en";
-  const annat = h("input", { type: "text", id: "p-annat", value: p && !SPRÅK[p.språk] ? p.språkNamn ?? "" : "", placeholder: "t.ex. tyska" });
-  const annatRad = h("label", { for: "p-annat", hidden: språk.value !== "annat" }, "Vilket språk?", annat);
-  språk.addEventListener("change", () => { annatRad.hidden = språk.value !== "annat"; });
   const val = h("div", { class: "emojival" }, ...EMOJI.map((e) => h("button", { "aria-pressed": String(e === emoji), "aria-label": e,
     onclick: (ev) => { emoji = e; val.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b === ev.currentTarget))); } }, e)));
   const fel = h("p", { class: "status fel", hidden: true });
   visa(
-    h("button", { class: "länk", onclick: () => vyVem() }, "← Tillbaka"),
+    h("button", { class: "länk", onclick: () => (p ? vyPersonHem(p) : vyStart()) }, "← Tillbaka"),
     h("h1", {}, p ? `Ändra ${p.namn}` : "Lägg till en person"),
     h("div", { class: "kort" },
       h("label", { for: "p-namn" }, "Namn", namn),
       h("div", { class: "stapel" }, h("strong", {}, "Figur"), val),
       h("label", { for: "p-född" }, "Födelseår", född),
-      h("label", { for: "p-språk" }, "Språk som hen läser", språk),
-      annatRad),
+      h("p", { class: "liten" }, "Åldern gör att frågorna och glosorna blir lagom svåra.")),
     fel,
     h("button", { class: "primär stor", onclick: async () => {
       if (!namn.value.trim()) { fel.hidden = false; fel.textContent = "Skriv ett namn."; return; }
-      const kod = språk.value === "annat" ? (annat.value.trim().toLowerCase() || "annat") : språk.value;
-      const post = { id: p?.id ?? Math.random().toString(36).slice(2, 8), namn: namn.value.trim(), emoji,
-        födelseår: född.value ? Number(född.value) : null, språk: kod, språkNamn: SPRÅK[kod] ?? annat.value.trim() };
+      const post = { ...(p ?? {}), id: p?.id ?? Math.random().toString(36).slice(2, 8), namn: namn.value.trim(), emoji,
+        födelseår: född.value ? Number(född.value) : null };
       personer = p ? personer.map((x) => (x.id === p.id ? post : x)) : [...personer, post];
       await sparaPersoner();
-      vyVem();
+      vyPersonHem(post);
     } }, "Spara"),
-    p ? h("button", { class: "farlig", onclick: async () => { personer = personer.filter((x) => x.id !== p.id); await sparaPersoner(); vyVem(); } }, `Ta bort ${p.namn} ur listan`) : null,
+    p ? h("button", { class: "farlig", onclick: async () => { personer = personer.filter((x) => x.id !== p.id); await sparaPersoner(); vyStart(); } }, `Ta bort ${p.namn} ur listan`) : null,
   );
 }
 
-// ---------- Steg 1: Vem ----------
-function börjaOm() { ny = { filer: [], samFiler: [], klistrad: "", upptäckare: true }; vyVem(); }
-
-function vyVem() {
+// ---------- Start: välj person ----------
+let aktuell = null; // personen vars sida visas (null = startsidan)
+function vyStart() {
+  aktuell = null;
+  const utanPerson = läxorFör(null);
   visa(
-    h("p", { class: "stegrad" }, "Steg 1 av 3"),
-    h("h1", {}, "Vem är läxan till?"),
+    h("h1", {}, "Skaparen"),
+    h("p", {}, "Vem gäller det?"),
     personer.length
-      ? h("div", { class: "stapel" }, ...personer.map((p) => h("div", { class: "rad", style: "flex-wrap:nowrap" },
-          h("button", { class: "person", style: "flex:1", onclick: () => { ny.person = p; ny.språk = språkFör(p.språk, p.språkNamn); vyTyp(); } },
-            h("span", { class: "emoji" }, p.emoji),
-            h("span", { class: "stapel", style: "gap:0" }, h("strong", {}, p.namn), h("span", { class: "liten" }, `${p.födelseår ? ålderFör(p) + " år · " : ""}${p.språkNamn ?? SPRÅK[p.språk]}`))),
-          h("button", { "aria-label": `Ändra ${p.namn}`, onclick: () => vyPerson(p) }, "✏️"))))
-      : h("p", { class: "kort" }, "Lägg till barnen en gång, så kommer appen ihåg ålder och språk."),
+      ? h("div", { class: "stapel" }, ...personer.map((p) => h("button", { class: "person", onclick: () => vyPersonHem(p) },
+          h("span", { class: "emoji" }, p.emoji),
+          h("span", { class: "stapel", style: "gap:0" }, h("strong", {}, p.namn),
+            h("span", { class: "liten" }, [p.födelseår ? `${ålderFör(p)} år` : "", `${läxorFör(p).length} ${läxorFör(p).length === 1 ? "läxa" : "läxor"}`].filter(Boolean).join(" · "))))))
+      : h("p", { class: "kort" }, "Börja med att lägga till barnen. Det behövs bara en gång."),
     h("button", { class: personer.length ? "" : "primär stor", onclick: () => vyPerson() }, "➕ Lägg till en person"),
+    utanPerson.length ? h("button", { onclick: () => vyLäxor(null) }, `📄 Äldre läxor utan person (${utanPerson.length})`) : null,
   );
+  visasNu = "start";
 }
 
-// ---------- Steg 2: Vad ----------
+// ---------- Personens sida ----------
+function vyPersonHem(p) {
+  aktuell = p;
+  const antal = läxorFör(p).length;
+  visa(
+    h("button", { class: "länk", onclick: vyStart }, "← Byt person"),
+    h("div", { class: "rad mellan" },
+      h("h1", {}, `${p.emoji} ${p.namn}`),
+      h("button", { "aria-label": `Ändra ${p.namn}`, onclick: () => vyPerson(p) }, "✏️ Ändra")),
+    p.födelseår ? h("p", { class: "liten" }, `${ålderFör(p)} år`) : null,
+    h("button", { class: "val", onclick: () => { ny = { person: p, filer: [], samFiler: [], klistrad: "", upptäckare: true, källa: "foto", antal: 15 }; vyTyp(); } },
+      h("strong", {}, "✨ Ny läxa"), h("span", { class: "liten" }, "Fotografera en läxa eller låt Claude hitta på glosor.")),
+    h("button", { class: "val", onclick: () => vyLäxor(p) },
+      h("strong", {}, `📚 Läxor (${antal})`), h("span", { class: "liten" }, antal ? "Skicka igen, lägg till sidor eller gör fler frågor." : "Här hamnar allt du skapar.")),
+  );
+  visasNu = "person";
+}
+function börjaOm() { aktuell ? vyPersonHem(aktuell) : vyStart(); }
+
+// ---------- Steg 1: Vad ----------
 function vyTyp() {
   visa(
-    h("button", { class: "länk", onclick: vyVem }, "← Tillbaka"),
-    h("p", { class: "stegrad" }, `Steg 2 av 3 · ${ny.person.emoji} ${ny.person.namn}`),
+    h("button", { class: "länk", onclick: () => vyPersonHem(ny.person) }, "← Tillbaka"),
+    h("p", { class: "stegrad" }, `Steg 1 av 2 · ${ny.person.emoji} ${ny.person.namn}`),
     h("h1", {}, "Vad är det för läxa?"),
     ...Object.entries(TYPER).map(([typ, t]) => h("button", { class: "val", onclick: () => { ny.typ = typ; vyMaterial(); } },
       h("strong", {}, `${t.ikon} ${t.namn}`), h("span", { class: "liten" }, t.beskrivning))),
@@ -249,21 +249,48 @@ function filRutor(lista, ändrat) {
     h("button", { "aria-label": "Ta bort", onclick: () => { lista.splice(i, 1); ändrat(); } }, "✕"))));
 }
 
+// Språket väljs per läxa (samma barn kan läsa flera språk). Senast valda språk för barnet är förvalt.
+function språkVäljare() {
+  ny.språk ??= språkFör(ny.person.senasteSpråk ?? "en", ny.person.senasteSpråkNamn);
+  const val = h("select", { id: "m-språk" }, h("option", { value: "en" }, "Engelska"), h("option", { value: "es" }, "Spanska"), h("option", { value: "annat" }, "Annat språk…"));
+  val.value = SPRÅK[ny.språk.kod] ? ny.språk.kod : "annat";
+  const annat = h("input", { type: "text", id: "m-annat", value: SPRÅK[ny.språk.kod] ? "" : ny.språk.namn, placeholder: "t.ex. tyska" });
+  const annatRad = h("label", { for: "m-annat", hidden: val.value !== "annat" }, "Vilket språk?", annat);
+  const uppdatera = () => {
+    annatRad.hidden = val.value !== "annat";
+    ny.språk = val.value === "annat" ? { kod: annat.value.trim().toLowerCase() || "annat", namn: annat.value.trim() || "det andra språket" } : språkFör(val.value);
+  };
+  val.addEventListener("change", uppdatera);
+  annat.addEventListener("input", uppdatera);
+  return h("div", { class: "stapel" }, h("label", { for: "m-språk" }, "Språk", val), annatRad);
+}
+
 function vyMaterial() {
   const t = TYPER[ny.typ];
-  const språkVal = ny.typ !== "fakta" ? h("select", { id: "m-språk", onchange: (e) => {
-    ny.språk = e.target.value === ny.person.språk ? språkFör(ny.person.språk, ny.person.språkNamn) : språkFör(e.target.value);
-  } }, ...[...new Set([ny.person.språk, "en", "es"])].map((k) => h("option", { value: k }, (SPRÅK[k] ?? ny.person.språkNamn ?? k).replace(/^./, (c) => c.toUpperCase())))) : null;
-  if (språkVal) språkVal.value = ny.språk.kod;
+  const hittaPå = ny.typ === "glosor" && ny.källa === "claude";
   const klistra = h("textarea", { id: "m-klistra", placeholder: ny.typ === "glosor" ? "hund – dog\nkatt – cat" : "Klistra in texten här" }, ny.klistrad);
   klistra.addEventListener("input", () => { ny.klistrad = klistra.value; });
+  const önskemål = h("textarea", { id: "m-önskemål", rows: 3, placeholder: "t.ex. djur på bondgården, enkla verb, saker i köket" }, ny.önskemål ?? "");
+  önskemål.addEventListener("input", () => { ny.önskemål = önskemål.value; });
+  const antal = h("select", { id: "m-antal", onchange: (e) => { ny.antal = Number(e.target.value); } },
+    ...[10, 15, 20, 30].map((n) => h("option", { value: n }, `${n} glosor`)));
+  antal.value = ny.antal;
   const fel = h("p", { class: "status fel", hidden: true });
   const rita = () => vyMaterial();
+  const väljKälla = (källa) => { ny.källa = källa; rita(); };
   visa(
     h("button", { class: "länk", onclick: vyTyp }, "← Tillbaka"),
-    h("p", { class: "stegrad" }, `Steg 3 av 3 · ${ny.person.emoji} ${ny.person.namn} · ${t.ikon} ${t.namn}`),
-    h("h1", {}, "Fotografera läxan"),
-    h("div", { class: "kort" },
+    h("p", { class: "stegrad" }, `Steg 2 av 2 · ${ny.person.emoji} ${ny.person.namn} · ${t.ikon} ${t.namn}`),
+    h("h1", {}, hittaPå ? "Låt Claude hitta på glosor" : "Fotografera läxan"),
+    ny.typ !== "fakta" ? h("div", { class: "kort" }, språkVäljare()) : null,
+    ny.typ === "glosor" ? h("div", { class: "flikar" },
+      h("button", { "aria-selected": String(!hittaPå), onclick: () => väljKälla("foto") }, "📷 Från läxan"),
+      h("button", { "aria-selected": String(hittaPå), onclick: () => väljKälla("claude") }, "✨ Claude hittar på")) : null,
+    hittaPå ? h("div", { class: "kort" },
+      h("label", { for: "m-önskemål" }, "Vad ska glosorna handla om?", önskemål),
+      h("label", { for: "m-antal" }, "Hur många?", antal),
+      h("p", { class: "liten" }, `Claude gör glosor som passar ${ny.person.namn}${ny.person.födelseår ? `, ${ålderFör(ny.person)} år` : ""}.`)) : null,
+    hittaPå ? null : h("div", { class: "kort" },
       filKnapp(ny.filer.length ? "📷 Lägg till fler sidor" : (ny.typ === "fakta" ? "📷 Fotografera boksidorna" : "📷 Fotografera sidorna"), ny.filer.length ? "" : "primär stor",
         (f) => { ny.filer.push(...f); rita(); }),
       ny.filer.length ? filRutor(ny.filer, rita) : h("p", { class: "liten" }, `Ta en bild per sida, högst ${MAX_SIDOR} sidor. Det går också att välja PDF eller Word.`),
@@ -273,16 +300,16 @@ function vyMaterial() {
       h("p", { class: "liten" }, "Har barnet fått en sammanfattning inför provet? Lägg till den så blir frågorna om den provfrågor. Kommer den senare kan du lägga till den under 📚 Mina läxor."),
       filKnapp(ny.samFiler.length ? "📷 Lägg till fler sidor" : "📷 Fotografera sammanfattningen", "", (f) => { ny.samFiler.push(...f); rita(); }),
       ny.samFiler.length ? filRutor(ny.samFiler, rita) : null) : null,
-    h("div", { class: "kort" },
-      språkVal ? h("label", { for: "m-språk" }, "Språk", språkVal) : null,
-      h("p", { class: "liten" }, `Frågorna anpassas till ${ny.person.namn}${ny.person.födelseår ? `, ${ålderFör(ny.person)} år` : ""}.`),
-      ny.typ === "fakta" ? h("label", { class: "kryss" }, h("input", { type: "checkbox", checked: ny.upptäckare ? true : null, onchange: (e) => { ny.upptäckare = e.target.checked; } }),
-        "🌟 Ta med extra kunskap utöver texten (Upptäckare)") : null),
+    ny.typ === "fakta" ? h("div", { class: "kort" },
+      h("label", { class: "kryss" }, h("input", { type: "checkbox", checked: ny.upptäckare ? true : null, onchange: (e) => { ny.upptäckare = e.target.checked; } }),
+        "🌟 Ta med extra kunskap utöver texten (Upptäckare)")) : null,
     fel,
     h("button", { class: "primär stor", onclick: () => {
-      if (!ny.filer.length && !ny.klistrad.trim()) { fel.hidden = false; fel.textContent = "Fotografera minst en sida eller klistra in text först."; return; }
+      if (hittaPå && !(ny.önskemål ?? "").trim()) { fel.hidden = false; fel.textContent = "Skriv vad glosorna ska handla om."; return; }
+      if (!hittaPå && !ny.filer.length && !ny.klistrad.trim()) { fel.hidden = false; fel.textContent = "Fotografera minst en sida eller klistra in text först."; return; }
+      if (ny.språk?.kod === "annat") { fel.hidden = false; fel.textContent = "Skriv vilket språk det är."; return; }
       skapa();
-    } }, "✨ Skapa läxan"),
+    } }, hittaPå ? "✨ Hitta på glosor" : "✨ Skapa läxan"),
   );
 }
 
@@ -445,6 +472,25 @@ ${OSÄKER_REGEL}
 
 Svara ENDAST med JSON i exakt den här formen:
 {"titel": "Engelska djur", "glosor": [{"sv": "hund", "ut": "dog", "osaker": false}]}`;
+}
+
+function hittaPåGlosorInstruktion(språk, ålder, önskemål, antal) {
+  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga glosor mellan svenska och ${språk.namn}.
+En förälder vill att du hittar på glosor. Förälderns önskemål:
+<<<
+${önskemål}
+>>>
+
+Gör exakt ${antal} glosor som passar önskemålet och barnets ålder. Regler:
+- Vanliga, användbara ord som barn i ${ålder}-årsåldern lär sig i skolan. Inga ovanliga eller vuxna ord.
+- Svenska skrivs utan artikel (hund, inte en hund).
+- Engelska substantiv skrivs utan artikel (dog).
+- Spanska substantiv skrivs ALLTID med bestämd artikel så att genus syns (el perro, la casa).
+- Ett rätt svar per glosa, och ingen glosa två gånger.
+- Ge glosorna en kort titel på svenska, till exempel "Engelska: djur på bondgården".
+
+Svara ENDAST med JSON i exakt den här formen:
+{"titel": "...", "glosor": [{"sv": "hund", "ut": "dog", "osaker": false}]}`;
 }
 
 const numreradText = (stycken) => stycken.map((s) => `[${s.id}]${s.rubrik ? " " + s.rubrik + ":" : ""} ${s.text}`).join("\n\n");
@@ -655,8 +701,18 @@ async function skapa(tvinga = false, förberett = null) {
   try {
     const bas = { v: 3, id: crypto.randomUUID().slice(0, 8), typ, skapad: new Date().toISOString().slice(0, 10), ålder, för: person.id };
     let m, varningar = [];
+    // Kom ihåg språket till nästa gång för det här barnet.
+    if (språk && typ !== "fakta" && person.senasteSpråk !== språk.kod) {
+      person.senasteSpråk = språk.kod; person.senasteSpråkNamn = språk.namn;
+      personer = personer.map((p) => (p.id === person.id ? person : p));
+      sparaPersoner();
+    }
 
-    if (typ === "glosor" && !förberett) {
+    if (typ === "glosor" && ny.källa === "claude") {
+      visaArbete(["Hittar på glosor", "Sparar"], 0);
+      const g = städaGlosor(await fråga(hittaPåGlosorInstruktion(språk, ålder, ny.önskemål.trim(), ny.antal)));
+      m = { ...bas, titel: g.titel || "Glosor", sidor: 0, språk: { från: "sv", till: språk.kod, namn: språk.namn }, glosor: numrera(g.glosor, "g", []) };
+    } else if (typ === "glosor" && !förberett) {
       // Glosor läses direkt från bilderna, några sidor åt gången.
       visaArbete(["Läser sidorna", "Hittar glosorna", "Sparar"], 0);
       const { bilder, text, varningar: v } = await samlaIn(ny.filer, ny.klistrad);
@@ -714,7 +770,7 @@ async function skapa(tvinga = false, förberett = null) {
         }
       }
     }
-    visaArbete(["Läser sidorna", "Gör övningarna", "Sparar"], 2);
+    visaArbete(stegLista, stegLista.length - 1);
     const sparad = await sparaLäxa(m);
     vyKlar(m, { sekunder: Math.round((performance.now() - start) / 1000), sparad, varningar });
   } catch (e) {
@@ -771,8 +827,8 @@ function vyKlar(m, info = {}) {
       h("button", { class: "primär stor", onclick: kopieraKnapp(() => m, status) }, "📋 Kopiera för sms"),
       status),
     h("details", { class: "kort" }, h("summary", {}, "Visa innehållet"), innehåll(m)),
-    h("p", { class: "liten" }, `${info.sekunder ? `Tog ${info.sekunder} sekunder. ` : ""}${info.sparad ? "Sparad i 📚 Mina läxor." : ""}`),
-    h("button", { onclick: börjaOm }, "✨ Skapa en till läxa"),
+    h("p", { class: "liten" }, `${info.sekunder ? `Tog ${info.sekunder} sekunder. ` : ""}${info.sparad ? `Sparad under ${ny.person.namn}s läxor.` : ""}`),
+    h("button", { onclick: () => vyPersonHem(ny.person) }, `← Tillbaka till ${ny.person.namn}`),
   );
 }
 
@@ -865,40 +921,41 @@ async function sparaLäxa(m) {
 let senasteLäxor = [];
 let öppenLäxa = null;
 let öppenDetalj = null; // { id, el } – återanvänds när listan ritas om, så att meddelanden står kvar
+// Listor ritas om när läxor sparas (även från en annan telefon), men bara på sidor som visar dem.
+let visasNu = "start";
 function taEmotLäxor(snap) {
   senasteLäxor = snap.docs.filter((d) => d.data()?.material).map((d) => ({ id: d.id, ...d.data() }));
   const personDoc = snap.docs.find((d) => d.id === "_personer");
-  if (personDoc && !pågående) { personer = personDoc.data().personer ?? []; }
-  $("flik-läxor").textContent = `📚 Mina läxor (${senasteLäxor.length})`;
-  if ($("flik-läxor").getAttribute("aria-selected") === "true") vyLäxor();
+  if (personDoc && !pågående) personer = personDoc.data().personer ?? [];
+  if (pågående) return;
+  if (visasNu === "start") vyStart();
+  else if (visasNu === "person" && aktuell) vyPersonHem(personNamn(aktuell.id) ?? aktuell);
+  else if (visasNu === "läxor") vyLäxor(aktuell);
 }
 
-function vyLäxor() {
-  if (!samling) return visa(h("h1", {}, "📚 Mina läxor"), h("p", { class: "kort" }, "Mina läxor går inte att använda här. Öppna Skaparen på claude.ai."));
-  // Grupperade per person, nyast först.
-  const grupper = new Map();
-  for (const l of senasteLäxor) {
-    const p = personNamn(l.för);
-    const nyckel = p ? p.id : "_";
-    if (!grupper.has(nyckel)) grupper.set(nyckel, { rubrik: p ? `${p.emoji} ${p.namn}` : "Övriga", läxor: [] });
-    grupper.get(nyckel).läxor.push(l);
-  }
+// person = null visar äldre läxor som inte hör till någon person.
+function vyLäxor(person) {
+  aktuell = person;
+  const tillbaka = () => (person ? vyPersonHem(person) : vyStart());
+  if (!samling) return visa(h("button", { class: "länk", onclick: tillbaka }, "← Tillbaka"), h("h1", {}, "📚 Läxor"), h("p", { class: "kort" }, "Läxorna går inte att visa här. Öppna Skaparen på claude.ai."));
+  const lista = läxorFör(person);
   visa(
-    h("h1", {}, "📚 Mina läxor"),
-    senasteLäxor.length ? h("p", { class: "liten" }, "Tryck på en läxa för att skicka den igen, lägga till sidor eller göra fler frågor.")
-      : h("p", { class: "kort" }, "Inga sparade läxor än. Allt du skapar hamnar här."),
-    ...[...grupper.values()].map((g) => h("div", { class: "stapel" },
-      h("h2", {}, g.rubrik),
-      ...g.läxor.map((l) => {
-        const öppen = öppenLäxa === l.id;
-        const m = l.material;
-        const knapp = h("button", { class: "läxa", "aria-expanded": String(öppen), onclick: () => { öppenLäxa = öppen ? null : l.id; öppenDetalj = null; vyLäxor(); } },
-          h("strong", {}, `${TYPER[l.typ]?.ikon ?? "📄"} ${l.titel}`),
-          h("span", { class: "liten" }, `${l.typ === "glosor" ? `${m.glosor.length} glosor` : `${m.fragor.length} ${vad(l.typ)}`} · ändrad ${l.uppdaterad.slice(0, 10)}`));
-        if (öppen && öppenDetalj?.id !== l.id) öppenDetalj = { id: l.id, el: läxDetalj(l.id, structuredClone(m)) };
-        return h("div", { class: "stapel" }, knapp, öppen ? öppenDetalj.el : null);
-      }))),
+    h("button", { class: "länk", onclick: tillbaka }, "← Tillbaka"),
+    h("h1", {}, person ? `📚 ${person.namn}s läxor` : "📄 Läxor utan person"),
+    lista.length ? h("p", { class: "liten" }, "Tryck på en läxa för att skicka den igen, lägga till sidor eller göra fler frågor.")
+      : h("p", { class: "kort" }, "Inga läxor än. Allt du skapar hamnar här."),
+    ...lista.map((l) => {
+      const öppen = öppenLäxa === l.id;
+      const m = l.material;
+      const knapp = h("button", { class: "läxa", "aria-expanded": String(öppen), onclick: () => { öppenLäxa = öppen ? null : l.id; öppenDetalj = null; vyLäxor(person); } },
+        h("strong", {}, `${TYPER[l.typ]?.ikon ?? "📄"} ${l.titel}`),
+        h("span", { class: "liten" }, `${l.typ === "glosor" ? `${m.glosor.length} glosor` : `${m.fragor.length} ${vad(l.typ)}`}${m.språk?.namn ? ` · ${m.språk.namn}` : ""} · ändrad ${l.uppdaterad.slice(0, 10)}`));
+      if (öppen && öppenDetalj?.id !== l.id) öppenDetalj = { id: l.id, el: läxDetalj(l.id, structuredClone(m)) };
+      return h("div", { class: "stapel" }, knapp, öppen ? öppenDetalj.el : null);
+    }),
+    person ? h("button", { class: "primär", onclick: () => { ny = { person, filer: [], samFiler: [], klistrad: "", upptäckare: true, källa: "foto", antal: 15 }; vyTyp(); } }, "✨ Ny läxa") : null,
   );
+  visasNu = "läxor";
 }
 
 function läxDetalj(id, m) {
@@ -973,6 +1030,9 @@ function läxDetalj(id, m) {
       m.upptackare = städaUpptäckare(svar, m.upptackare);
     }) : null,
     m.typ === "fakta" && !kanUtöka ? h("p", { class: "liten" }, "Den här läxan skapades innan texten sparades. Skapa den igen för att kunna lägga till mer.") : null,
+    !personNamn(m.för) && personer.length ? h("label", {}, "Flytta till",
+      h("select", { onchange: async (e) => { if (!e.target.value) return; m.för = e.target.value; await sparaLäxa(m); öppenLäxa = null; öppenDetalj = null; } },
+        h("option", { value: "" }, "Välj person…"), ...personer.map((p) => h("option", { value: p.id }, `${p.emoji} ${p.namn}`)))) : null,
     status,
     radera);
 }
@@ -1000,7 +1060,7 @@ function läxDetalj(id, m) {
       samling.orderBy("uppdaterad", "desc").onSnapshot(taEmotLäxor, () => {});
       // Personerna hämtas en gång direkt, så att listan syns även innan första läxan finns.
       const p = await samling.doc("_personer").get();
-      if (p.exists && !ny?.person) { personer = p.data().personer ?? []; vyVem(); }
+      if (p.exists) { personer = p.data().personer ?? []; if (visasNu === "start") vyStart(); }
       delar.push("Mina läxor: ok");
     } else {
       delar.push("Mina läxor: inte tillgängligt");
