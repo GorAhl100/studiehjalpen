@@ -129,6 +129,18 @@ details[open] summary { margin-bottom: 8px; }
 .mätare.guld > div { background: var(--guld); }
 .nivå { font-size: 0.85rem; color: var(--dämpad); }
 
+/* Faktatexter: läsa, Upptäckare */
+button.läsknapp { text-align: center; border-color: var(--andra); }
+.lästext { font-size: 1.15rem; line-height: 1.8; max-width: 60ch; min-width: 0; }
+.bildtext { font-style: italic; color: var(--dämpad); }
+.stycke-ruta { margin-top: 8px; font-weight: 400; }
+.stycke-ruta summary { font-weight: 700; }
+.extra-märke { justify-self: start; font-size: 0.85rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--guld); color: #22223b; }
+.kort.upptäckare { border-color: var(--guld); }
+.kort.upptäckare.låst { border-style: dashed; }
+button.kort.upptäckare { text-align: left; width: 100%; }
+.kort.upplåst { animation: studs 0.5s; }
+
 /* Resultat och album */
 .stjärnor { font-size: 2.6rem; letter-spacing: 0.1em; text-align: center; }
 .nytt-klistermärke { text-align: center; width: 100%; border-color: var(--guld); }

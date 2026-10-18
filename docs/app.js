@@ -109,14 +109,17 @@ function röstFör(kod) {
   const kandidater = röstKandidater(kod);
   return kandidater.find((r) => r.voiceURI === vald) || kandidater[0] || null;
 }
-function läsUpp(text, kod) {
+function läsUpp(text, kod) { läsUppFlera([text], kod); }
+function läsUppFlera(texter, kod) {
   if (!("speechSynthesis" in window)) return;
   speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = RÖSTSPRÅK[kod] || kod;
-  const r = röstFör(kod); if (r) u.voice = r;
-  u.rate = 0.9;
-  speechSynthesis.speak(u);
+  for (const text of texter) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = RÖSTSPRÅK[kod] || kod;
+    const r = röstFör(kod); if (r) u.voice = r;
+    u.rate = 0.9;
+    speechSynthesis.speak(u);
+  }
 }
 const lyssnaKnapp = (text, kod) => h("button", { class: "lyssna", "aria-label": "Läs upp", onclick: (e) => { e.stopPropagation(); läsUpp(text, kod); } }, "🔊");
 
@@ -153,15 +156,58 @@ const appAdress = () => location.href.replace(/#.*$/, "");
 // Varje material blir en lista "kort". Ett kort vet hur det ska ställas som fråga på en viss nivå.
 // Nyckeln bygger på glosans/frågans id, så att framstegen följer med när listan ändras.
 // Äldre material saknar id och använder platsen i listan, vilket ger samma nyckel som förut.
-function kortFör(m) {
+// läge: "text" = frågor om läxtexten (de upplåsta) + begrepp, "upptäckare" = 🌟-frågorna, "alla" = allt.
+function kortFör(m, läge = "text", pid = profil?.id) {
   if (m.typ === "glosor") {
     return m.glosor.map((g, i) => ({ nyckel: `${m.id}:${g.id ?? i}`, glosa: g })).filter((k) => !k.glosa.dold);
   }
-  return m.fragor.map((f, i) => ({ nyckel: `${m.id}:${f.id ?? i}`, fråga: f })).filter((k) => !k.fråga.dold);
+  const textkort = textFrågor(m).map((f) => ({ nyckel: `${m.id}:${f.id}`, fråga: f }));
+  const begrepp = (m.begrepp ?? []).filter((b) => !b.dold).map((b) => ({ nyckel: `${m.id}:${b.id}`, begrepp: b }));
+  const upptäckare = (m.upptackare?.fragor ?? []).filter((f) => !f.dold).map((f) => ({ nyckel: `${m.id}:${f.id}`, fråga: f, upptäckare: true }));
+  if (läge === "upptäckare") return upptäckare;
+  if (läge === "alla") return [...textkort, ...begrepp, ...upptäckare];
+  return [...textkort.slice(0, upplåstaAntal(m, pid)), ...(m.begrepp?.length > 1 ? begrepp : [])];
 }
 function geId(m) {
   m.glosor?.forEach((g, i) => { g.id ??= String(i); });
   m.fragor?.forEach((f, i) => { f.id ??= String(i); });
+  m.begrepp?.forEach((b, i) => { b.id ??= `b${i}`; });
+  return m;
+}
+
+// ---------- Upplåsning (faktatexter) ----------
+// Nivå 1-frågor (minnesfrågor) kommer först. 10 frågor åt gången låses upp när 70 % av de
+// upplåsta är minst "Kan nästan". Upptäckare öppnas när 80 % av alla textfrågor är "Kan!".
+const PER_UPPLÅSNING = 10;
+function textFrågor(m) {
+  return (m.fragor ?? []).filter((f) => !f.dold).sort((a, b) => (a.niva ?? 1) - (b.niva ?? 1));
+}
+function andelPåNivå(m, frågor, nivå, pid) {
+  if (!frågor.length) return 0;
+  const f = framstegFör(pid);
+  return frågor.filter((q) => (f[`${m.id}:${q.id}`]?.nivå ?? 0) >= nivå).length / frågor.length;
+}
+function upplåstaAntal(m, pid) {
+  const alla = textFrågor(m);
+  let n = Math.min(PER_UPPLÅSNING, alla.length);
+  while (n < alla.length && andelPåNivå(m, alla.slice(0, n), 2, pid) >= 0.7) n = Math.min(n + PER_UPPLÅSNING, alla.length);
+  return n;
+}
+const upptäckarAndel = (m, pid) => andelPåNivå(m, textFrågor(m), 3, pid);
+const upptäckareÖppen = (m, pid) => !!m.upptackare?.fragor?.length && upptäckarAndel(m, pid) >= 0.8;
+
+// Nya versioner av en övning (till exempel fler frågor) behåller barnets egna rättelser och dolda frågor.
+function slåIhop(gammal, ny) {
+  const lista = (g = [], n = []) => {
+    const gamla = new Map(g.map((x) => [x.id, x]));
+    const nyaIds = new Set(n.map((x) => x.id));
+    return [...n.map((x) => gamla.get(x.id) ?? x), ...g.filter((x) => !nyaIds.has(x.id))];
+  };
+  const m = { ...ny };
+  for (const k of ["glosor", "fragor", "begrepp"]) if (ny[k] || gammal[k]) m[k] = lista(gammal[k], ny[k]);
+  if (ny.upptackare || gammal.upptackare) {
+    m.upptackare = { fakta: lista(gammal.upptackare?.fakta, ny.upptackare?.fakta), fragor: lista(gammal.upptackare?.fragor, ny.upptackare?.fragor) };
+  }
   return m;
 }
 
@@ -218,14 +264,27 @@ function byggFråga(m, kort, nivå) {
       rätt, alternativ: väljAlternativ(rätt, andra, nivå, svarsSpråk),
     };
   }
+  if (kort.begrepp) {
+    // Begrepp övas som glosor: ord → förklaring eller förklaring → ord.
+    const b = kort.begrepp, andra = m.begrepp.filter((x) => x !== b && !x.dold);
+    const frånOrd = Math.random() < 0.5;
+    const text = frånOrd ? `Vad betyder "${b.ord}"?` : `Vilket ord betyder: ${b.forklaring}?`;
+    const rätt = frånOrd ? b.forklaring : b.ord;
+    return { text, upplästText: text, upplästSpråk: "sv", svarsSpråk: "sv", rätt,
+      alternativ: väljAlternativ(rätt, andra.map((x) => (frånOrd ? x.forklaring : x.ord)), nivå, "sv", !frånOrd) };
+  }
   const f = kort.fråga;
+  // Var svaret står: ett stycke i läxtexten, eller en "Visste du att"-ruta för Upptäckare.
+  const stycke = m.text?.find((s) => s.id === f.stycke);
+  const fakta = kort.upptäckare ? m.upptackare.fakta.find((v) => v.id === f.fakta) : null;
+  const ursprung = { källa: f.kalla, stycke, fakta, upptäckare: kort.upptäckare };
   if (f.typ === "santfalskt") {
     return { text: f.pastaende, upplästText: f.pastaende, upplästSpråk: "sv", svarsSpråk: "sv",
-      rätt: f.sant ? "Sant" : "Falskt", alternativ: ["Sant", "Falskt"], källa: f.kalla };
+      rätt: f.sant ? "Sant" : "Falskt", alternativ: ["Sant", "Falskt"], ...ursprung };
   }
   // Claudes felalternativ är redan rimliga, så här styr nivån bara antalet.
   return { text: f.fraga, upplästText: f.fraga, upplästSpråk: "sv", svarsSpråk: "sv",
-    rätt: f.ratt, alternativ: väljAlternativ(f.ratt, f.fel, nivå, "sv", false), källa: f.kalla };
+    rätt: f.ratt, alternativ: väljAlternativ(f.ratt, f.fel, nivå, "sv", false), ...ursprung };
 }
 
 // Lägre nivå och fler fel = större chans att komma.
@@ -377,7 +436,9 @@ function sammanfattaFramsteg(m) {
   const f = framstegFör(profil.id);
   const k = kortFör(m);
   const kan = k.filter((x) => f[x.nyckel]?.nivå === 3).length;
-  return `${k.length} ${m.typ === "glosor" ? "glosor" : "frågor"} · ${kan} kan du 🦅`;
+  if (m.typ === "glosor") return `${k.length} glosor · ${kan} kan du 🦅`;
+  const totalt = textFrågor(m).length, öppna = upplåstaAntal(m, profil.id);
+  return `${öppna < totalt ? `${öppna} av ${totalt}` : totalt} frågor · ${kan} kan du 🦅${upptäckareÖppen(m, profil.id) ? " · 🌟" : ""}`;
 }
 
 function vyInställningar() {
@@ -439,17 +500,23 @@ function vyMaterial(m) {
       val.querySelectorAll("button").forEach((b) => b.classList.toggle("primär", b === e.currentTarget));
     } }, a === "∞" ? "∞ Oändligt" : `${a} frågor`)));
   val.querySelectorAll("button")[1].classList.add("primär");
+  const fakta = m.typ !== "glosor";
+  const totalt = fakta ? textFrågor(m).length : 0;
+  const öppna = fakta ? upplåstaAntal(m, profil.id) : 0;
   visa(
     h("button", { class: "liten-knapp", onclick: vyHem }, "← Tillbaka"),
     h("h1", {}, m.titel),
+    m.text?.length ? h("button", { class: "stor läsknapp", onclick: () => vyLäsText(m) }, "📖 Läs texten") : null,
     h("div", { class: "kort" },
-      h("div", { class: "rad" }, ...NIVÅER.map((n, i) => h("span", { class: "nivå" }, `${n.ikon} ${n.namn}: ${räkna(i)}`)))),
+      h("div", { class: "rad" }, ...NIVÅER.map((n, i) => h("span", { class: "nivå" }, `${n.ikon} ${n.namn}: ${räkna(i)}`))),
+      fakta && öppna < totalt ? h("p", { class: "liten" }, `🔓 ${öppna} av ${totalt} frågor är upplåsta. När du kan de flesta av dem låses fler upp.`) : null),
     m.sammanfattning ? h("div", { class: "kort" },
       h("div", { class: "rad mellan" }, h("h2", {}, "Sammanfattning"), lyssnaKnapp(m.sammanfattning, "sv")),
       h("p", {}, m.sammanfattning),
       m.begrepp?.length ? h("ul", { class: "lista" }, ...m.begrepp.map((b) => h("li", {}, h("strong", {}, b.ord), ` – ${b.forklaring}`))) : null) : null,
     h("div", { class: "kort" }, h("strong", {}, "Hur många frågor?"), val,
       h("button", { class: "primär stor", onclick: () => vyÖva(m, antal === "∞" ? Infinity : Number(antal)) }, "Starta ▶")),
+    fakta && m.upptackare?.fragor?.length ? upptäckarKort(m) : null,
     h("div", { class: "knapprad" },
       m.typ === "glosor" ? h("button", { onclick: () => vyRedigeraGlosor(m) }, "✏️ Ändra glosor") : null,
       h("button", { onclick: () => vyDela(m) }, "📤 Skicka till någon")),
@@ -461,6 +528,50 @@ function vyMaterial(m) {
         papperskorgFör(profil.id).unshift({ m, borttagen: new Date().toISOString().slice(0, 10) });
         spara(); vyHem();
       })),
+  );
+}
+
+function upptäckarKort(m) {
+  if (!upptäckareÖppen(m, profil.id)) {
+    const andel = upptäckarAndel(m, profil.id);
+    return h("div", { class: "kort upptäckare låst" },
+      h("strong", {}, "🔒 🌟 Upptäckare"),
+      h("p", {}, "Extra kunskap som inte står i din text. Öppnas när du kan 80 % av frågorna 🦅."),
+      h("div", { class: "mätare guld", "aria-label": `Du kan ${Math.round(andel * 100)} procent` }, h("div", { style: `width:${Math.min(100, (andel / 0.8) * 100)}%` })),
+      h("span", { class: "liten" }, `Du kan ${Math.round(andel * 100)} % just nu.`));
+  }
+  return h("div", { class: "kort upptäckare" },
+    h("strong", {}, "🌟 Upptäckare"),
+    h("p", {}, "Du kan din läxa! Här finns extra kunskap som inte står i texten. Läs först, öva sedan."),
+    h("button", { onclick: () => vyVisteDu(m) }, "💡 Visste du att…?"),
+    h("button", { class: "primär", onclick: () => vyÖva(m, 10, "upptäckare") }, "Öva Upptäckar-frågor ▶"));
+}
+
+function vyVisteDu(m) {
+  const fakta = m.upptackare.fakta.filter((v) => !v.dold);
+  visa(
+    h("button", { class: "liten-knapp", onclick: () => vyMaterial(m) }, "← Tillbaka"),
+    h("h1", {}, "💡 Visste du att…?"),
+    h("p", { class: "liten" }, "Det här står inte i din läxa. Det är extra kunskap för den som vill veta mer."),
+    ...fakta.map((v) => h("div", { class: "kort upptäckare" }, h("div", { class: "rad mellan", style: "flex-wrap:nowrap" }, h("p", { class: "lästext" }, v.text), lyssnaKnapp(v.text, "sv")))),
+    h("button", { class: "primär stor", onclick: () => vyÖva(m, 10, "upptäckare") }, "Öva Upptäckar-frågor ▶"),
+  );
+}
+
+function vyLäsText(m) {
+  const högt = (s) => (s.rubrik ? `${s.rubrik}. ${s.text}` : s.text);
+  visa(
+    h("button", { class: "liten-knapp", onclick: () => { speechSynthesis?.cancel(); vyMaterial(m); } }, "← Tillbaka"),
+    h("h1", {}, `📖 ${m.titel}`),
+    h("div", { class: "rad" },
+      h("button", { onclick: () => läsUppFlera(m.text.map(högt), "sv") }, "🔊 Läs upp allt"),
+      h("button", { class: "liten-knapp", onclick: () => speechSynthesis?.cancel() }, "⏹ Stoppa")),
+    ...m.text.map((s) => h("div", { class: "kort", id: `stycke-${s.id}` },
+      s.rubrik ? h("h2", {}, s.rubrik) : null,
+      h("div", { class: "rad mellan", style: "flex-wrap:nowrap;align-items:flex-start" },
+        h("p", { class: s.text.startsWith("[") ? "lästext bildtext" : "lästext" }, s.text),
+        lyssnaKnapp(högt(s), "sv")))),
+    h("button", { class: "primär stor", onclick: () => { speechSynthesis?.cancel(); vyMaterial(m); } }, "Klar, nu övar jag ▶"),
   );
 }
 
@@ -570,10 +681,12 @@ function vyRedigeraGlosor(m) {
   uppdatera();
 }
 
-function vyÖva(m, totalt) {
-  const kortlista = kortFör(m);
+function vyÖva(m, totalt, läge = "text") {
+  const kortlista = kortFör(m, läge);
   if (!kortlista.length) return vyHem();
-  const omgång = { rätt: 0, svarade: 0, logg: [], nyaKan: 0, förra: null };
+  const fakta = m.typ !== "glosor";
+  const omgång = { rätt: 0, svarade: 0, logg: [], nyaKan: 0, förra: null, läge,
+    upplåstaFöre: fakta ? upplåstaAntal(m, profil.id) : 0, upptäckareFöre: fakta && upptäckareÖppen(m, profil.id) };
 
   function nästa() {
     if (omgång.svarade >= totalt) return avsluta();
@@ -602,7 +715,7 @@ function vyÖva(m, totalt) {
       åter.className = "återkoppling " + (ok ? "rätt" : "fel");
       åter.replaceChildren(...[
         ok ? (blevKan ? "Rätt! Nu kan du den här 🦅" : "Rätt! 🎉") : `Inte riktigt. Rätt svar: ${q.rätt}`,
-        !ok && q.källa ? h("p", { class: "källa" }, `Så här står det i texten: "${q.källa}"`) : null].filter(Boolean));
+        ...(ok ? [] : förklaring(q))].filter(Boolean));
       vidare.hidden = false;
       vidare.focus();
     }
@@ -618,6 +731,7 @@ function vyÖva(m, totalt) {
       mätare,
       h("div", { class: "kort" },
         h("span", { class: "nivå" }, `${NIVÅER[nivå].ikon} ${NIVÅER[nivå].namn}`),
+        q.upptäckare ? h("span", { class: "extra-märke" }, "🌟 Extra kunskap – står inte i din text") : null,
         h("div", { class: "rad mellan" }, h("p", { class: "fråga-text" }, q.text), lyssnaKnapp(q.upplästText, q.upplästSpråk)),
         h("div", { class: "alternativ" }, ...knappar.map((k, i) => h("div", { class: "rad", style: "flex-wrap:nowrap" },
           h("div", { style: "flex:1;min-width:0;display:grid" }, k), lyssnaKnapp(q.alternativ[i], q.svarsSpråk)))),
@@ -628,6 +742,7 @@ function vyÖva(m, totalt) {
   }
 
   function avsluta() {
+    speechSynthesis?.cancel();
     if (!omgång.svarade) return vyMaterial(m);
     const stjärnor = Belöning.stjärnorFör(omgång.rätt, omgång.svarade);
     const nya = Belöning.ge(profil.id, stjärnor, omgång.nyaKan);
@@ -635,6 +750,20 @@ function vyÖva(m, totalt) {
     vyResultat(m, omgång, stjärnor, nya);
   }
   nästa();
+}
+
+// Vid fel svar: var svaret står. Ett citat och hela stycket ur texten, eller Upptäckarens faktaruta.
+function förklaring(q) {
+  if (q.upptäckare && q.fakta) {
+    return [h("div", { class: "källa" }, h("div", { class: "rad mellan", style: "flex-wrap:nowrap" }, h("span", {}, `💡 ${q.fakta.text}`), lyssnaKnapp(q.fakta.text, "sv")))];
+  }
+  return [
+    q.källa ? h("p", { class: "källa" }, `Så här står det i texten: "${q.källa}"`) : null,
+    q.stycke ? h("details", { class: "stycke-ruta" },
+      h("summary", {}, "📖 Läs hela stycket"),
+      h("div", { class: "rad mellan", style: "flex-wrap:nowrap;align-items:flex-start" },
+        h("p", { class: "lästext" }, q.stycke.text), lyssnaKnapp(q.stycke.text, "sv"))) : null,
+  ];
 }
 
 function vyResultat(m, omgång, stjärnor, nya) {
@@ -654,14 +783,20 @@ function vyResultat(m, omgång, stjärnor, nya) {
       catch { skickaStatus.replaceChildren("Kopiera länken:", h("p", { class: "kod" }, länk)); }
     } }, "📲 Det här var jag! Skicka till min telefon"),
     skickaStatus) : null;
+  const fakta = m.typ !== "glosor";
+  const nyaFrågor = fakta ? upplåstaAntal(m, profil.id) - omgång.upplåstaFöre : 0;
+  const nyUpptäckare = fakta && !omgång.upptäckareFöre && upptäckareÖppen(m, profil.id);
   visa(
     h("h1", {}, "Bra jobbat!"),
     h("div", { class: "kort" },
       h("p", { class: "stjärnor", "aria-label": `${stjärnor} av 3 stjärnor` }, "⭐".repeat(stjärnor) + "☆".repeat(3 - stjärnor)),
       h("p", { style: "text-align:center;font-weight:700" }, `${omgång.rätt} av ${omgång.svarade} rätt`),
       nya.length ? h("button", { class: "nytt-klistermärke", onclick: vyAlbum }, `Nytt klistermärke! `, h("span", { class: "studs" }, nya.join(" ")), h("span", { class: "liten" }, " Se albumet")) : null),
+    nyaFrågor > 0 ? h("div", { class: "kort upplåst" }, h("strong", {}, `🔓 ${nyaFrågor} nya frågor är upplåsta!`)) : null,
+    nyUpptäckare ? h("button", { class: "kort upptäckare upplåst", onclick: () => vyVisteDu(m) },
+      h("strong", {}, "🌟 Du har låst upp Upptäckare!"), h("span", {}, "Du kan din läxa. Tryck här för extra kunskap.")) : null,
     gästdel,
-    h("button", { class: "primär", onclick: () => vyÖva(m, omgång.svarade || 10) }, "Öva igen"),
+    h("button", { class: "primär", onclick: () => vyÖva(m, omgång.svarade || 10, omgång.läge) }, "Öva igen"),
     h("button", { onclick: vyHem }, "Till startsidan"),
   );
   if (nya.length) Ljud.klistermärke();
@@ -679,6 +814,8 @@ function vyRätta(m, kort, fortsätt) {
       if (!sv.value.trim() || !ut.value.trim()) { fel.hidden = false; fel.textContent = "Båda fälten behöver fyllas i."; return false; }
       kort.glosa.sv = sv.value.trim(); kort.glosa.ut = ut.value.trim(); kort.glosa.osaker = false; return true;
     };
+  } else if (kort.begrepp) {
+    delar.push(h("p", {}, h("strong", {}, kort.begrepp.ord), ` – ${kort.begrepp.forklaring}`));
   } else {
     delar.push(h("p", {}, kort.fråga.fraga || kort.fråga.pastaende));
   }
@@ -686,7 +823,8 @@ function vyRätta(m, kort, fortsätt) {
     h("h1", {}, "Rätta"),
     h("div", { class: "kort" }, ...delar, fel,
       sparaÄndring ? h("button", { class: "primär", onclick: () => { if (sparaÄndring()) { spara(); fortsätt(); } } }, "Spara rättelsen") : null,
-      h("button", { onclick: () => { (kort.glosa || kort.fråga).dold = true; spara(); fortsätt(); } }, "Ta bort frågan från övningen"),
+      h("p", { class: "liten" }, kort.upptäckare ? "Verkar faktan fel? Ta bort frågan så kommer den inte tillbaka." : "Är frågan konstig eller fel? Ta bort den så kommer den inte tillbaka."),
+      h("button", { onclick: () => { (kort.glosa || kort.fråga || kort.begrepp).dold = true; spara(); fortsätt(); } }, "Ta bort frågan från övningen"),
       h("button", { class: "liten-knapp", onclick: fortsätt }, "Avbryt")),
   );
 }
@@ -742,8 +880,9 @@ function vyTaEmotMaterial(m) {
     const lista = materialFör(p.id);
     m = geId(structuredClone(m));
     const finns = lista.findIndex((x) => x.id === m.id);
-    if (finns >= 0) lista[finns] = m; else lista.unshift(m);
-    spara(); aktivera(p); vyHem();
+    if (finns >= 0) lista[finns] = slåIhop(geId(lista[finns]), m); else lista.unshift(m);
+    spara(); aktivera(p);
+    vyMaterial(lista[finns >= 0 ? finns : 0]);
   });
 }
 
@@ -752,7 +891,7 @@ function vyTaEmotResultat(r) {
     return visa(h("h1", {}, "Redan inlagt"), h("p", {}, "Det här resultatet har redan lagts in."), h("button", { class: "primär", onclick: vyStart }, "OK"));
   }
   väljProfil("Resultat från en lånad telefon", `${r.logg.length} svar och ${r.stjärnor} ⭐. Vem var det som övade?`, false, (p) => {
-    const kända = new Set(materialFör(p.id).flatMap((m) => kortFör(m).map((k) => k.nyckel)));
+    const kända = new Set(materialFör(p.id).flatMap((m) => kortFör(m, "alla", p.id).map((k) => k.nyckel)));
     let saknas = 0;
     for (const [nyckel, ok] of r.logg) { if (kända.has(nyckel)) registrera(p.id, nyckel, ok === 1); else saknas++; }
     const nya = Belöning.ge(p.id, r.stjärnor, r.nyaKan || 0);
@@ -811,15 +950,30 @@ async function vyTestinfo() {
 const EXEMPEL_GLOSOR = { v: 1, id: "exempel-g", typ: "glosor", titel: "Exempel: spanska djur", språk: { från: "sv", till: "es", namn: "spanska" },
   glosor: [["hund", "el perro"], ["katt", "el gato"], ["häst", "el caballo"], ["ko", "la vaca"], ["fågel", "el pájaro"], ["fisk", "el pez"], ["mus", "el ratón"], ["gris", "el cerdo"]]
     .map(([sv, ut]) => ({ sv, ut, osaker: false })) };
-const EXEMPEL_FAKTA = { v: 1, id: "exempel-f", typ: "fakta", titel: "Exempel: vikingatiden",
-  sammanfattning: "Vikingatiden var ungefär år 800 till 1050. Vikingarna bodde i Norden. De var bönder, handelsmän och ibland krigare. De reste långt med sina snabba skepp.",
-  begrepp: [{ ord: "träl", forklaring: "en slav på vikingatiden" }, { ord: "runsten", forklaring: "en sten med inristad text" }],
+const EXEMPEL_FAKTA = { v: 2, id: "exempel-f", typ: "fakta", titel: "Exempel: vikingatiden", ålder: 12,
+  text: [
+    { id: "s1", rubrik: "Vikingatiden", text: "Vikingatiden var ungefär år 800 till 1050. Vikingarna bodde i Norden, alltså i det som i dag är Sverige, Norge och Danmark. De flesta var bönder, men många var också handelsmän och ibland krigare." },
+    { id: "s2", rubrik: "Samhället", text: "Högst upp i samhället stod hövdingarna, som kallades jarlar. De flesta människor var fria bönder. Längst ned fanns trälarna. En träl var en slav som inte fick bestämma över sitt eget liv." },
+    { id: "s3", rubrik: "Skeppen", text: "Vikingarna byggde snabba och smala skepp som kunde segla både på havet och uppför floder. Med skeppen reste de långt, ända till Konstantinopel i söder och Island i väster." },
+    { id: "s4", text: "[Bild: karta över vikingarnas resvägar]" },
+    { id: "s5", rubrik: "Runor", text: "Vikingarna skrev med runor. Runorna ristades ofta in i stenar, som kallas runstenar. På runstenarna kunde det stå vem som hade dött och vem som hade rest stenen." },
+  ],
+  sammanfattning: "Vikingatiden var ungefär år 800 till 1050. Vikingarna bodde i Norden och var mest bönder, men också handelsmän och krigare. De reste långt med snabba skepp och skrev med runor på runstenar.",
+  begrepp: [{ id: "b1", ord: "träl", forklaring: "en slav på vikingatiden" }, { id: "b2", ord: "runsten", forklaring: "en sten med inristad text" }, { id: "b3", ord: "jarl", forklaring: "en hövding på vikingatiden" }],
   fragor: [
-    { typ: "flerval", fraga: "Ungefär när var vikingatiden?", ratt: "800–1050", fel: ["500–700", "1200–1400", "1500–1600", "100–300", "1700–1800"], niva: 1, kalla: "Vikingatiden var ungefär år 800 till 1050." },
-    { typ: "flerval", fraga: "Vad kallades vikingarnas slavar?", ratt: "Trälar", fel: ["Jarlar", "Bönder", "Skalder", "Hövdingar", "Riddare"], niva: 1, kalla: "träl – en slav på vikingatiden" },
-    { typ: "santfalskt", pastaende: "Vikingarna reste med snabba skepp.", sant: true, niva: 1, kalla: "De reste långt med sina snabba skepp." },
-    { typ: "santfalskt", pastaende: "Alla vikingar var krigare.", sant: false, niva: 2, kalla: "De var bönder, handelsmän och ibland krigare." },
-  ] };
+    { id: "f1", typ: "flerval", fraga: "Ungefär när var vikingatiden?", ratt: "800–1050", fel: ["500–700", "1200–1400", "1500–1600", "100–300", "1700–1800"], niva: 1, stycke: "s1", kalla: "Vikingatiden var ungefär år 800 till 1050." },
+    { id: "f2", typ: "flerval", fraga: "Vad kallades vikingarnas slavar?", ratt: "Trälar", fel: ["Jarlar", "Bönder", "Skalder", "Hövdingar", "Riddare"], niva: 1, stycke: "s2", kalla: "Längst ned fanns trälarna." },
+    { id: "f3", typ: "santfalskt", pastaende: "Vikingarnas skepp kunde segla uppför floder.", sant: true, niva: 1, stycke: "s3", kalla: "skepp som kunde segla både på havet och uppför floder" },
+    { id: "f4", typ: "santfalskt", pastaende: "Alla vikingar var krigare.", sant: false, niva: 2, stycke: "s1", kalla: "De flesta var bönder, men många var också handelsmän och ibland krigare." },
+    { id: "f5", typ: "flerval", fraga: "Vad skrev vikingarna med?", ratt: "Runor", fel: ["Bläck", "Latinska bokstäver", "Bilder", "Siffror", "Knutar"], niva: 1, stycke: "s5", kalla: "Vikingarna skrev med runor." },
+    { id: "f6", typ: "flerval", fraga: "Varför kunde vikingarna resa så långt?", ratt: "De hade snabba skepp", fel: ["De red på hästar", "De hade kartor från romarna", "De gick till fots", "De hade stora vagnar", "De flög"], niva: 2, stycke: "s3", kalla: "Med skeppen reste de långt" },
+  ],
+  upptackare: {
+    fakta: [{ id: "v1", text: "Visste du att vikingarna kom till Nordamerika ungefär 500 år före Columbus? Platsen kallade de Vinland." },
+            { id: "v2", text: "Visste du att vikingarna inte hade horn på sina hjälmar? Det är något som konstnärer hittade på långt senare." }],
+    fragor: [{ id: "u1", typ: "flerval", fraga: "Vad kallade vikingarna platsen i Nordamerika?", ratt: "Vinland", fel: ["Grönland", "Snöland", "Västland", "Fiskland", "Skogland"], niva: 1, fakta: "v1" },
+             { id: "u2", typ: "santfalskt", pastaende: "Vikingarnas hjälmar hade horn.", sant: false, niva: 1, fakta: "v2" }],
+  } };
 
 // ---------- Start ----------
 // På iPhone öppnas sms-länkar i Safari, som har annan lagring än appen på hemskärmen.
@@ -862,6 +1016,8 @@ window.addEventListener("hashchange", hanteraLänk);
   // Töm papperskorgen på sådant som legat där längre än 30 dagar.
   const gräns = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   for (const pid of Object.keys(lager.papperskorg)) lager.papperskorg[pid] = lager.papperskorg[pid].filter((p) => p.borttagen >= gräns);
+  // Övningar från äldre versioner saknar id på frågorna.
+  for (const lista of Object.values(lager.material)) lista.forEach(geId);
   spara();
   if (!(await hanteraLänk())) vyStart();
 })();
