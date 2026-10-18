@@ -22,16 +22,24 @@ const nyttId = () => Math.random().toString(36).slice(2, 10);
 
 // ---------- Lagring ----------
 const NYCKEL = "studiehjalpen.v1";
-const tomtLager = () => ({ profiler: [], material: {}, framsteg: {}, belöning: {}, importerade: [], inställningar: {} });
+const tomtLager = () => ({ profiler: [], material: {}, framsteg: {}, belöning: {}, papperskorg: {}, importerade: [], inställningar: {} });
 let lager = tomtLager();
 try { lager = { ...tomtLager(), ...JSON.parse(localStorage.getItem(NYCKEL) || "{}") }; } catch {}
 function spara() { try { localStorage.setItem(NYCKEL, JSON.stringify(lager)); } catch {} }
 
-const GÄST = { id: "gäst", namn: "Gäst", avatar: "🙂", språk: "en", uppläsning: "manuell" };
+const GÄST = { id: "gäst", namn: "Gäst", avatar: "🙂", språk: "en", uppläsning: "manuell", tema: "sol", ljud: true };
 let profil = null; // aktiv profil
-const profilFör = (id) => (id === GÄST.id ? GÄST : lager.profiler.find((p) => p.id === id));
 const materialFör = (pid) => (lager.material[pid] ??= []);
 const framstegFör = (pid) => (lager.framsteg[pid] ??= {});
+const papperskorgFör = (pid) => (lager.papperskorg[pid] ??= []);
+
+// ---------- Teman ----------
+// Varje tema är ett [data-tema]-block i style.css. Ett nytt tema = ett nytt block + en rad här.
+const TEMAN = { sol: "☀️ Sol", hav: "🌊 Hav", skog: "🌲 Skog", rymd: "🚀 Rymd" };
+function aktivera(p) {
+  profil = p;
+  document.body.dataset.tema = TEMAN[p?.tema] ? p.tema : "sol";
+}
 
 // ---------- Belöningar (utbytbar modul) ----------
 // Ett annat belöningssystem = en ny implementation med samma tre funktioner.
@@ -54,6 +62,7 @@ const Belöning = {
     return nya;
   },
   status(pid) { return lager.belöning[pid] ?? { stjärnor: 0, album: [] }; },
+  tillNästa(pid) { return 10 - (this.status(pid).stjärnor % 10); },
 };
 
 // ---------- Nivåer ----------
@@ -142,26 +151,71 @@ const appAdress = () => location.href.replace(/#.*$/, "");
 
 // ---------- Övningsfrågor ----------
 // Varje material blir en lista "kort". Ett kort vet hur det ska ställas som fråga på en viss nivå.
+// Nyckeln bygger på glosans/frågans id, så att framstegen följer med när listan ändras.
+// Äldre material saknar id och använder platsen i listan, vilket ger samma nyckel som förut.
 function kortFör(m) {
   if (m.typ === "glosor") {
-    return m.glosor.map((g, i) => ({ nyckel: `${m.id}:${i}`, index: i, glosa: g })).filter((k) => !k.glosa.dold);
+    return m.glosor.map((g, i) => ({ nyckel: `${m.id}:${g.id ?? i}`, glosa: g })).filter((k) => !k.glosa.dold);
   }
-  return m.fragor.map((f, i) => ({ nyckel: `${m.id}:${i}`, index: i, fråga: f })).filter((k) => !k.fråga.dold);
+  return m.fragor.map((f, i) => ({ nyckel: `${m.id}:${f.id ?? i}`, fråga: f })).filter((k) => !k.fråga.dold);
+}
+function geId(m) {
+  m.glosor?.forEach((g, i) => { g.id ??= String(i); });
+  m.fragor?.forEach((f, i) => { f.id ??= String(i); });
+  return m;
+}
+
+// Hur lika två svar ser ut. Används för att välja svårare felalternativ på högre nivåer.
+const ARTIKEL = /^(el|la|los|las|the|a|an) /i;
+function avstånd(a, b) {
+  const rad = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let förra = rad[0]; rad[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = rad[j];
+      rad[j] = Math.min(rad[j] + 1, rad[j - 1] + 1, förra + (a[i - 1] === b[j - 1] ? 0 : 1));
+      förra = tmp;
+    }
+  }
+  return rad[b.length];
+}
+function likhet(a, b) {
+  const x = a.toLowerCase(), y = b.toLowerCase();
+  const ax = x.match(ARTIKEL)?.[1], ay = y.match(ARTIKEL)?.[1];
+  const kx = x.replace(ARTIKEL, ""), ky = y.replace(ARTIKEL, "");
+  return (ax && ax === ay ? 2 : 0) + (kx[0] === ky[0] ? 2 : 0) + (kx.slice(-2) === ky.slice(-2) ? 1 : 0)
+    + Math.max(0, 3 - Math.abs(kx.length - ky.length)) + Math.max(0, 4 - avstånd(kx, ky));
+}
+
+// Nivå 0–1: slumpade felalternativ. Nivå 2–3: de som liknar rätt svar mest.
+// Spanska på nivå 3: ett av felalternativen är rätt ord med fel artikel (la perro).
+function väljAlternativ(rätt, kandidater, nivå, svarsSpråk, likna = true) {
+  const behov = NIVÅER[nivå].alternativ - 1;
+  let pool = [...new Set(kandidater)].filter((x) => x && x !== rätt);
+  const fel = [];
+  if (nivå >= 3 && svarsSpråk === "es") {
+    const byt = { el: "la", la: "el", los: "las", las: "los" };
+    const träff = rätt.match(/^(el|la|los|las) (.+)$/i);
+    const variant = träff && `${byt[träff[1].toLowerCase()]} ${träff[2]}`;
+    if (variant && !pool.includes(variant)) fel.push(variant);
+  }
+  if (likna && nivå >= 2) pool = blanda(pool.sort((a, b) => likhet(rätt, b) - likhet(rätt, a)).slice(0, behov * 2));
+  else pool = blanda(pool);
+  fel.push(...pool.slice(0, behov - fel.length));
+  return blanda([rätt, ...fel]);
 }
 
 function byggFråga(m, kort, nivå) {
-  const antal = NIVÅER[nivå].alternativ;
   if (kort.glosa) {
     const tillSv = Math.random() < 0.5;
     const fråga = tillSv ? kort.glosa.ut : kort.glosa.sv;
     const rätt = tillSv ? kort.glosa.sv : kort.glosa.ut;
-    const andra = blanda(m.glosor.filter((g, i) => i !== kort.index && !g.dold).map((g) => (tillSv ? g.sv : g.ut)))
-      .filter((x) => x !== rätt);
+    const svarsSpråk = tillSv ? "sv" : m.språk.till;
+    const andra = m.glosor.filter((g) => g !== kort.glosa && !g.dold).map((g) => (tillSv ? g.sv : g.ut));
     return {
       text: tillSv ? `Vad betyder "${fråga}" på svenska?` : `Vad heter "${fråga}" på ${m.språk.namn}?`,
-      upplästText: fråga, upplästSpråk: tillSv ? m.språk.till : "sv",
-      svarsSpråk: tillSv ? "sv" : m.språk.till,
-      rätt, alternativ: blanda([rätt, ...[...new Set(andra)].slice(0, antal - 1)]),
+      upplästText: fråga, upplästSpråk: tillSv ? m.språk.till : "sv", svarsSpråk,
+      rätt, alternativ: väljAlternativ(rätt, andra, nivå, svarsSpråk),
     };
   }
   const f = kort.fråga;
@@ -169,8 +223,9 @@ function byggFråga(m, kort, nivå) {
     return { text: f.pastaende, upplästText: f.pastaende, upplästSpråk: "sv", svarsSpråk: "sv",
       rätt: f.sant ? "Sant" : "Falskt", alternativ: ["Sant", "Falskt"], källa: f.kalla };
   }
+  // Claudes felalternativ är redan rimliga, så här styr nivån bara antalet.
   return { text: f.fraga, upplästText: f.fraga, upplästSpråk: "sv", svarsSpråk: "sv",
-    rätt: f.ratt, alternativ: blanda([f.ratt, ...[...new Set(f.fel)].filter((x) => x !== f.ratt).slice(0, antal - 1)]), källa: f.kalla };
+    rätt: f.ratt, alternativ: väljAlternativ(f.ratt, f.fel, nivå, "sv", false), källa: f.kalla };
 }
 
 // Lägre nivå och fler fel = större chans att komma.
@@ -189,13 +244,14 @@ function väljKort(kortlista, pid, förra) {
 
 // ---------- Vyer ----------
 function vyStart() {
+  aktivera(null);
   const kort = lager.profiler.map((p) =>
-    h("button", { class: "profil", onclick: () => { profil = p; vyHem(); } },
+    h("button", { class: "profil", onclick: () => { aktivera(p); vyHem(); } },
       h("span", { class: "avatar" }, p.avatar), h("span", {}, p.namn)));
   visa(
     h("h1", {}, "Vem pluggar?"),
     h("div", { class: "stapel" }, ...kort,
-      h("button", { class: "profil", onclick: () => { profil = GÄST; vyHem(); } }, h("span", { class: "avatar" }, GÄST.avatar), h("span", {}, "Gäst (lånad telefon)")),
+      h("button", { class: "profil", onclick: () => { aktivera(GÄST); vyHem(); } }, h("span", { class: "avatar" }, GÄST.avatar), h("span", {}, "Gäst (lånad telefon)")),
       h("button", { class: "profil", onclick: () => vyNyProfil() }, h("span", { class: "avatar" }, "➕"), h("span", {}, "Ny profil"))),
     h("div", { class: "rad" },
       h("button", { class: "liten-knapp", onclick: () => vyKlistraIn() }, "📋 Klistra in"),
@@ -210,6 +266,7 @@ function vyNyProfil() {
   const född = h("input", { type: "date", id: "fodd" });
   const språk = h("select", { id: "sprak" }, h("option", { value: "en" }, "Engelska"), h("option", { value: "es" }, "Spanska"));
   const uppl = h("select", { id: "uppl" }, h("option", { value: "manuell" }, "När jag trycker på 🔊"), h("option", { value: "auto" }, "Automatiskt"));
+  const tema = temaVäljare("tema", "sol");
   const val = h("div", { class: "avatarval" }, ...AVATARER.map((a) =>
     h("button", { "aria-pressed": String(a === avatar), "aria-label": a, onclick: (e) => {
       avatar = a; val.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b === e.currentTarget)));
@@ -223,14 +280,23 @@ function vyNyProfil() {
       h("label", { for: "fodd" }, "Födelsedag", född),
       h("label", { for: "sprak" }, "Glosspråk", språk),
       h("label", { for: "uppl" }, "Läs upp frågor", uppl),
+      h("label", { for: "tema" }, "Färgtema", tema),
       fel,
       h("button", { class: "primär", onclick: () => {
         if (!namn.value.trim()) { fel.hidden = false; fel.textContent = "Skriv ett namn."; return; }
-        const p = { id: nyttId(), namn: namn.value.trim(), avatar, född: född.value || null, språk: språk.value, uppläsning: uppl.value };
-        lager.profiler.push(p); spara(); profil = p; vyHem();
+        const p = { id: nyttId(), namn: namn.value.trim(), avatar, född: född.value || null, språk: språk.value, uppläsning: uppl.value, tema: tema.value, ljud: true };
+        lager.profiler.push(p); spara(); aktivera(p); vyHem();
       } }, "Skapa profil")),
     h("button", { class: "liten-knapp", onclick: vyStart }, "← Tillbaka"),
   );
+}
+
+// Byter tema direkt när man väljer, så att man ser hur det blir.
+function temaVäljare(id, nuvarande) {
+  const val = h("select", { id, onchange: () => { document.body.dataset.tema = val.value; } },
+    ...Object.entries(TEMAN).map(([k, namn]) => h("option", { value: k }, namn)));
+  val.value = TEMAN[nuvarande] ? nuvarande : "sol";
+  return val;
 }
 
 function ålder(p) {
@@ -242,23 +308,68 @@ function ålder(p) {
 function vyHem() {
   const b = Belöning.status(profil.id);
   const lista = materialFör(profil.id);
+  const korg = papperskorgFör(profil.id);
   const å = ålder(profil);
+  const kvar = Belöning.tillNästa(profil.id);
   visa(
     h("div", { class: "rad mellan" },
-      h("h1", {}, `${profil.avatar} Hej ${profil.namn}!`),
+      h("h1", {}, h("span", { class: "rubrik-avatar" }, profil.avatar), ` Hej ${profil.namn}!`),
       h("button", { class: "liten-knapp", onclick: vyStart }, "Byt")),
     å !== null ? h("p", { class: "liten" }, `${å} år`) : null,
-    h("div", { class: "kort" },
-      h("div", { class: "rad mellan" }, h("strong", {}, `⭐ ${b.stjärnor} stjärnor`), h("span", { class: "liten" }, `${10 - (b.stjärnor % 10)} till nästa klistermärke`)),
-      b.album.length ? h("div", { class: "album", "aria-label": "Klistermärken" }, ...b.album) : h("p", { class: "liten" }, "Inga klistermärken än. Öva för att samla!")),
+    h("button", { class: "kort stjärnkort", onclick: vyAlbum },
+      h("div", { class: "rad mellan" }, h("strong", {}, `⭐ ${b.stjärnor} stjärnor`), h("span", {}, `📒 Album (${b.album.length})`)),
+      h("div", { class: "mätare guld", "aria-label": `${kvar} stjärnor kvar till nästa klistermärke` }, h("div", { style: `width:${(10 - kvar) * 10}%` })),
+      h("span", { class: "liten" }, `${kvar} ⭐ kvar till nästa klistermärke`)),
     h("h2", {}, "Mina övningar"),
     lista.length
-      ? h("div", { class: "stapel" }, ...lista.map((m) => h("button", { onclick: () => vyMaterial(m) },
-          `${m.typ === "glosor" ? "📘" : "🌍"} ${m.titel}`, h("br"), h("span", { class: "liten" }, sammanfattaFramsteg(m)))))
-      : h("p", { class: "liten" }, "Inga övningar än. Öppna en länk från en förälder eller klistra in en kod."),
+      ? h("div", { class: "stapel" }, ...lista.map((m) => h("button", { class: "övning", onclick: () => vyMaterial(m) },
+          h("span", { class: "övning-ikon" }, m.typ === "glosor" ? "📘" : "🌍"),
+          h("span", { class: "övning-text" }, h("strong", {}, m.titel), h("span", { class: "liten" }, sammanfattaFramsteg(m))))))
+      : h("p", { class: "liten" }, "Inga övningar än. Skriv in egna glosor, öppna en länk från en förälder eller klistra in en kod."),
+    h("div", { class: "knapprad" },
+      profil === GÄST ? null : h("button", { onclick: () => vyRedigeraGlosor(null) }, "➕ Egna glosor"),
+      h("button", { onclick: () => vyKlistraIn() }, "📋 Klistra in")),
     h("div", { class: "rad" },
-      h("button", { class: "liten-knapp", onclick: () => vyKlistraIn() }, "📋 Klistra in"),
-      profil === GÄST ? null : h("button", { class: "liten-knapp", onclick: () => vyInställningar() }, "Inställningar")),
+      profil === GÄST ? null : h("button", { class: "liten-knapp", onclick: () => vyInställningar() }, "⚙️ Inställningar"),
+      korg.length ? h("button", { class: "liten-knapp", onclick: vyPapperskorg }, `🗑️ Papperskorg (${korg.length})`) : null),
+  );
+}
+
+function vyAlbum() {
+  const b = Belöning.status(profil.id);
+  const antal = {};
+  for (const k of b.album) antal[k] = (antal[k] || 0) + 1;
+  const kvar = Belöning.tillNästa(profil.id);
+  visa(
+    h("button", { class: "liten-knapp", onclick: vyHem }, "← Tillbaka"),
+    h("h1", {}, "📒 Mitt album"),
+    h("p", {}, `${Object.keys(antal).length} av ${Belöning.KLISTERMÄRKEN.length} klistermärken. ${kvar} ⭐ kvar till nästa.`),
+    h("div", { class: "albumrutnät" }, ...Belöning.KLISTERMÄRKEN.map((k) => antal[k]
+      ? h("div", { class: "klistermärke" }, h("span", {}, k), antal[k] > 1 ? h("span", { class: "antal" }, `×${antal[k]}`) : null)
+      : h("div", { class: "klistermärke tomt", "aria-label": "Inte hittat än" }, "?"))),
+    h("div", { class: "kort" },
+      h("strong", {}, "Så får du klistermärken"),
+      h("ul", { class: "lista" },
+        h("li", {}, "1–3 ⭐ för varje omgång du övar."),
+        h("li", {}, "Ett klistermärke för var tionde ⭐."),
+        h("li", {}, "Ett extra klistermärke varje gång du kan något 🦅."))),
+  );
+}
+
+function vyPapperskorg() {
+  const korg = papperskorgFör(profil.id);
+  if (!korg.length) return vyHem();
+  visa(
+    h("button", { class: "liten-knapp", onclick: vyHem }, "← Tillbaka"),
+    h("h1", {}, "🗑️ Papperskorg"),
+    h("p", { class: "liten" }, "Övningar ligger här i 30 dagar innan de försvinner."),
+    ...korg.map((post, i) => h("div", { class: "kort" },
+      h("strong", {}, post.m.titel),
+      h("span", { class: "liten" }, `Borttagen ${post.borttagen}`),
+      h("button", { class: "primär", onclick: () => {
+        korg.splice(i, 1); materialFör(profil.id).unshift(post.m); spara(); vyPapperskorg();
+      } }, "↩️ Ta tillbaka"),
+      hållInKnapp("Håll in för att ta bort för alltid", () => { korg.splice(i, 1); spara(); vyPapperskorg(); }))),
   );
 }
 
@@ -272,21 +383,31 @@ function sammanfattaFramsteg(m) {
 function vyInställningar() {
   const uppl = h("select", { id: "uppl2" }, h("option", { value: "manuell" }, "När jag trycker på 🔊"), h("option", { value: "auto" }, "Automatiskt"));
   uppl.value = profil.uppläsning;
+  const ljud = h("select", { id: "ljud" }, h("option", { value: "på" }, "På"), h("option", { value: "av" }, "Av"));
+  ljud.value = profil.ljud === false ? "av" : "på";
+  const tema = temaVäljare("tema2", profil.tema);
+  const tillbaka = () => { aktivera(profil); vyHem(); };
   visa(
     h("h1", {}, "Inställningar"),
     h("div", { class: "kort" },
       h("label", { for: "uppl2" }, "Läs upp frågor", uppl),
-      h("button", { class: "primär", onclick: () => { profil.uppläsning = uppl.value; spara(); vyHem(); } }, "Spara")),
+      h("label", { for: "ljud" }, "Ljud vid rätt och fel svar", ljud),
+      h("label", { for: "tema2" }, "Färgtema", tema),
+      h("p", { class: "liten" }, "Hörs inget ljud? Kontrollera att telefonen inte står på ljudlöst."),
+      h("button", { class: "primär", onclick: () => {
+        profil.uppläsning = uppl.value; profil.ljud = ljud.value === "på"; profil.tema = tema.value;
+        spara(); tillbaka();
+      } }, "Spara")),
     h("div", { class: "kort" },
       h("strong", {}, "Ta bort profilen"),
       h("p", { class: "liten" }, "Profilens övningar, framsteg och klistermärken försvinner också."),
       hållInKnapp(`Håll in för att ta bort ${profil.namn}`, () => {
         const id = profil.id;
         lager.profiler = lager.profiler.filter((p) => p.id !== id);
-        delete lager.material[id]; delete lager.framsteg[id]; delete lager.belöning[id];
-        spara(); profil = null; vyStart();
+        delete lager.material[id]; delete lager.framsteg[id]; delete lager.belöning[id]; delete lager.papperskorg[id];
+        spara(); vyStart();
       })),
-    h("button", { class: "liten-knapp", onclick: vyHem }, "← Tillbaka"),
+    h("button", { class: "liten-knapp", onclick: tillbaka }, "← Tillbaka"),
   );
 }
 
@@ -328,8 +449,125 @@ function vyMaterial(m) {
       h("p", {}, m.sammanfattning),
       m.begrepp?.length ? h("ul", { class: "lista" }, ...m.begrepp.map((b) => h("li", {}, h("strong", {}, b.ord), ` – ${b.forklaring}`))) : null) : null,
     h("div", { class: "kort" }, h("strong", {}, "Hur många frågor?"), val,
-      h("button", { class: "primär", onclick: () => vyÖva(m, antal === "∞" ? Infinity : Number(antal)) }, "Starta ▶")),
+      h("button", { class: "primär stor", onclick: () => vyÖva(m, antal === "∞" ? Infinity : Number(antal)) }, "Starta ▶")),
+    h("div", { class: "knapprad" },
+      m.typ === "glosor" ? h("button", { onclick: () => vyRedigeraGlosor(m) }, "✏️ Ändra glosor") : null,
+      h("button", { onclick: () => vyDela(m) }, "📤 Skicka till någon")),
+    h("div", { class: "kort" },
+      h("p", { class: "liten" }, "Övningen hamnar i papperskorgen och kan tas tillbaka i 30 dagar."),
+      hållInKnapp("Håll in för att ta bort övningen", () => {
+        const lista = materialFör(profil.id);
+        lista.splice(lista.indexOf(m), 1);
+        papperskorgFör(profil.id).unshift({ m, borttagen: new Date().toISOString().slice(0, 10) });
+        spara(); vyHem();
+      })),
   );
+}
+
+// Skickar en kopia av övningen som länk, till exempel från en förälders profil till ett barns telefon.
+async function vyDela(m) {
+  const kopia = { ...m, glosor: m.glosor?.filter((g) => !g.dold), fragor: m.fragor?.filter((f) => !f.dold) };
+  const länk = appAdress() + "#m=" + (await packa(kopia));
+  const status = h("p", { class: "liten", hidden: true });
+  visa(
+    h("button", { class: "liten-knapp", onclick: () => vyMaterial(m) }, "← Tillbaka"),
+    h("h1", {}, "📤 Skicka till någon"),
+    h("p", {}, `Skicka "${m.titel}" som en länk i ett sms. Den som öppnar länken får en egen kopia att öva på.`),
+    h("p", { class: "liten" }, "Framstegen följer inte med, bara själva övningen."),
+    navigator.share ? h("button", { class: "primär", onclick: async () => {
+      try { await navigator.share({ title: m.titel, url: länk }); } catch {}
+    } }, "📤 Dela") : null,
+    h("button", { onclick: async () => {
+      status.hidden = false;
+      try { await navigator.clipboard.writeText(länk); status.textContent = "Länken är kopierad. Klistra in den i ett sms."; }
+      catch { status.replaceChildren("Kopiera länken:", h("p", { class: "kod" }, länk)); }
+    } }, "📋 Kopiera länken"),
+    status,
+  );
+}
+
+// Egna glosor: skapa nya (m = null) eller ändra befintliga.
+function vyRedigeraGlosor(m) {
+  const SPRÅK = { en: "engelska", es: "spanska" };
+  if (m) geId(m);
+  const rader = m ? m.glosor.filter((g) => !g.dold).map((g) => ({ ...g })) : [];
+  while (rader.length < 3) rader.push({ id: nyttId(), sv: "", ut: "" });
+
+  const titel = h("input", { type: "text", id: "g-titel", value: m?.titel ?? "", placeholder: "t.ex. Spanska vecka 12" });
+  const startspråk = m ? (SPRÅK[m.språk.till] ? m.språk.till : "annat") : (profil.språk || "en");
+  const språk = h("select", { id: "g-språk", onchange: uppdatera },
+    h("option", { value: "en" }, "Engelska"), h("option", { value: "es" }, "Spanska"), h("option", { value: "annat" }, "Annat språk…"));
+  språk.value = startspråk;
+  const annat = h("input", { type: "text", id: "g-annat", value: startspråk === "annat" ? m.språk.namn : "", placeholder: "t.ex. tyska" });
+  const annatRad = h("label", { for: "g-annat" }, "Vilket språk?", annat);
+  const tips = h("p", { class: "liten" }, "Skriv spanska substantiv med artikel: el perro, la casa.");
+  const lista = h("div", { class: "stapel" });
+  const fel = h("p", { class: "inte-ok", hidden: true });
+  const klistra = h("textarea", { id: "g-lista", rows: 4, placeholder: "hund – el perro\nkatt – el gato" });
+
+  function språkNamn() {
+    return språk.value === "annat" ? (annat.value.trim() || "det andra språket") : SPRÅK[språk.value];
+  }
+  function uppdatera() {
+    annatRad.hidden = språk.value !== "annat";
+    tips.hidden = språk.value !== "es";
+    lista.querySelectorAll("[data-ut]").forEach((el) => { el.placeholder = språkNamn(); });
+  }
+  function radEl(r) {
+    const sv = h("input", { type: "text", value: r.sv, placeholder: "svenska", "aria-label": "Svenska", autocapitalize: "none",
+      oninput: () => { r.sv = sv.value; } });
+    const ut = h("input", { type: "text", value: r.ut, placeholder: språkNamn(), "aria-label": "Översättning", "data-ut": "", autocapitalize: "none",
+      oninput: () => { r.ut = ut.value; } });
+    const el = h("div", { class: "glosrad" }, sv, ut,
+      h("button", { class: "lyssna", "aria-label": "Ta bort raden", onclick: () => { rader.splice(rader.indexOf(r), 1); el.remove(); } }, "✕"));
+    return el;
+  }
+  function läggTillRad(r) { rader.push(r); const el = radEl(r); lista.append(el); return el; }
+  rader.forEach((r) => lista.append(radEl(r)));
+
+  visa(
+    h("button", { class: "liten-knapp", onclick: () => (m ? vyMaterial(m) : vyHem()) }, "← Tillbaka"),
+    h("h1", {}, m ? "✏️ Ändra glosor" : "➕ Egna glosor"),
+    h("div", { class: "kort" },
+      h("label", { for: "g-titel" }, "Namn på övningen", titel),
+      h("label", { for: "g-språk" }, "Språk", språk),
+      annatRad, tips),
+    h("div", { class: "kort" },
+      h("strong", {}, "Glosor"),
+      lista,
+      h("button", { onclick: () => läggTillRad({ id: nyttId(), sv: "", ut: "" }).querySelector("input").focus() }, "➕ Lägg till ord"),
+      h("details", {},
+        h("summary", {}, "Klistra in en hel lista"),
+        h("div", { class: "stapel" },
+          h("p", { class: "liten" }, "Ett ordpar per rad, med streck, kolon eller likhetstecken emellan."),
+          klistra,
+          h("button", { onclick: () => {
+            for (const rad of klistra.value.split("\n")) {
+              const delar = rad.split(/\s*(?:\t|–|—|=|:|;|\s-\s)\s*/);
+              if (delar.length >= 2 && delar[0].trim() && delar[1].trim()) läggTillRad({ id: nyttId(), sv: delar[0].trim(), ut: delar.slice(1).join(" ").trim() });
+            }
+            klistra.value = "";
+          } }, "Lägg till från listan")))),
+    fel,
+    h("button", { class: "primär stor", onclick: () => {
+      const klara = rader.map((r) => ({ id: r.id, sv: r.sv.trim(), ut: r.ut.trim() })).filter((r) => r.sv && r.ut);
+      if (!klara.length) { fel.hidden = false; fel.textContent = "Skriv minst ett ordpar, både svenska och översättning."; return; }
+      if (språk.value === "annat" && !annat.value.trim()) { fel.hidden = false; fel.textContent = "Skriv vilket språk det är."; return; }
+      const nyttSpråk = { från: "sv", till: språk.value === "annat" ? annat.value.trim().toLowerCase() : språk.value, namn: språkNamn() };
+      const namn = titel.value.trim() || `Egna glosor (${nyttSpråk.namn})`;
+      if (m) {
+        // Borttagna glosor sparas som dolda, så att deras framsteg inte blandas ihop med nya.
+        const kvar = new Set(klara.map((g) => g.id));
+        const dolda = m.glosor.filter((g) => !kvar.has(g.id)).map((g) => ({ ...g, dold: true }));
+        Object.assign(m, { titel: namn, språk: nyttSpråk, glosor: [...klara, ...dolda] });
+      } else {
+        m = { v: 1, id: nyttId(), typ: "glosor", titel: namn, skapad: new Date().toISOString().slice(0, 10), språk: nyttSpråk, glosor: klara };
+        materialFör(profil.id).unshift(m);
+      }
+      spara(); vyMaterial(m);
+    } }, "💾 Spara"),
+  );
+  uppdatera();
 }
 
 function vyÖva(m, totalt) {
@@ -356,6 +594,7 @@ function vyÖva(m, totalt) {
       });
       const { blevKan } = registrera(profil.id, kort.nyckel, ok);
       if (blevKan) omgång.nyaKan++;
+      if (!ok) Ljud.fel(); else if (blevKan) Ljud.kan(); else Ljud.rätt();
       omgång.svarade++; if (ok) omgång.rätt++;
       omgång.logg.push([kort.nyckel, ok ? 1 : 0]);
       spara();
@@ -420,11 +659,12 @@ function vyResultat(m, omgång, stjärnor, nya) {
     h("div", { class: "kort" },
       h("p", { class: "stjärnor", "aria-label": `${stjärnor} av 3 stjärnor` }, "⭐".repeat(stjärnor) + "☆".repeat(3 - stjärnor)),
       h("p", { style: "text-align:center;font-weight:700" }, `${omgång.rätt} av ${omgång.svarade} rätt`),
-      nya.length ? h("p", { style: "text-align:center" }, `Nytt klistermärke: `, h("span", { style: "font-size:2rem" }, nya.join(" "))) : null),
+      nya.length ? h("button", { class: "nytt-klistermärke", onclick: vyAlbum }, `Nytt klistermärke! `, h("span", { class: "studs" }, nya.join(" ")), h("span", { class: "liten" }, " Se albumet")) : null),
     gästdel,
     h("button", { class: "primär", onclick: () => vyÖva(m, omgång.svarade || 10) }, "Öva igen"),
     h("button", { onclick: vyHem }, "Till startsidan"),
   );
+  if (nya.length) setTimeout(Ljud.klistermärke, 300);
 }
 
 function vyRätta(m, kort, fortsätt) {
@@ -500,10 +740,10 @@ function vyTaEmotMaterial(m) {
   const antal = m.typ === "glosor" ? `${m.glosor.length} glosor` : `${m.fragor.length} frågor`;
   väljProfil(`${m.typ === "glosor" ? "📘" : "🌍"} ${m.titel}`, `${antal}. Vem ska öva på det här?`, true, (p) => {
     const lista = materialFör(p.id);
-    m = structuredClone(m);
+    m = geId(structuredClone(m));
     const finns = lista.findIndex((x) => x.id === m.id);
     if (finns >= 0) lista[finns] = m; else lista.unshift(m);
-    spara(); profil = p; vyHem();
+    spara(); aktivera(p); vyHem();
   });
 }
 
@@ -516,7 +756,7 @@ function vyTaEmotResultat(r) {
     let saknas = 0;
     for (const [nyckel, ok] of r.logg) { if (kända.has(nyckel)) registrera(p.id, nyckel, ok === 1); else saknas++; }
     const nya = Belöning.ge(p.id, r.stjärnor, r.nyaKan || 0);
-    lager.importerade.push(r.id); spara(); profil = p;
+    lager.importerade.push(r.id); spara(); aktivera(p);
     visa(
       h("h1", {}, "Klart! 🎉"),
       h("p", {}, `${r.stjärnor} ⭐ har lagts till hos ${p.namn}.`),
@@ -619,5 +859,9 @@ window.addEventListener("hashchange", hanteraLänk);
 (async () => {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   try { await navigator.storage?.persist?.(); } catch {}
+  // Töm papperskorgen på sådant som legat där längre än 30 dagar.
+  const gräns = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  for (const pid of Object.keys(lager.papperskorg)) lager.papperskorg[pid] = lager.papperskorg[pid].filter((p) => p.borttagen >= gräns);
+  spara();
   if (!(await hanteraLänk())) vyStart();
 })();

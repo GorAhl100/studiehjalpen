@@ -1,29 +1,52 @@
-/* Teman: allt utseende styrs av variablerna nedan. Ett nytt tema = ett nytt [data-tema]-block. */
-[data-tema="lekfull"] {
+/* Teman: allt utseende styrs av variablerna nedan.
+   Ett nytt tema = ett nytt [data-tema]-block här + en rad i TEMAN i app.js. */
+:root, [data-tema="sol"] {
   --bg: #fff8e7;
   --yta: #ffffff;
   --text: #22223b;
   --dämpad: #6b6b80;
-  --kant: #e9dfc4;
+  --kant: #f0e2bd;
   --accent: #ff7b54;
   --accent-text: #ffffff;
   --andra: #4d96ff;
+  --alt1: #ffd166; --alt2: #06d6a0; --alt3: #4d96ff; --alt4: #ef476f; --alt5: #9b5de5; --alt6: #f78c6b;
   --ratt: #2ea44f;
   --ratt-bg: #dff6e5;
   --fel: #d64545;
   --fel-bg: #fde4e4;
   --guld: #f5b700;
-  --radie: 18px;
+  --radie: 20px;
   --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  [data-tema="lekfull"] {
+  [data-tema="sol"] {
     --bg: #1c1b2e; --yta: #28273f; --text: #f3f1ff; --dämpad: #b4b2cc; --kant: #3c3a5a;
     --accent: #ff8f6b; --accent-text: #1c1b2e; --andra: #7cb2ff;
     --ratt: #5fd38a; --ratt-bg: #1f3d2c; --fel: #ff8080; --fel-bg: #4a2228; --guld: #ffd34d;
     color-scheme: dark;
   }
+}
+[data-tema="hav"] {
+  --bg: #e8f6fb; --yta: #ffffff; --text: #10324a; --dämpad: #557085; --kant: #c4e3ef;
+  --accent: #1592c4; --accent-text: #ffffff; --andra: #12b5a6;
+  --alt1: #4cc9f0; --alt2: #43aa8b; --alt3: #277da1; --alt4: #f9844a; --alt5: #577590; --alt6: #90be6d;
+  --ratt: #2a9d6f; --ratt-bg: #daf3e8; --fel: #d1495b; --fel-bg: #fbe2e5; --guld: #f4b400;
+  color-scheme: light;
+}
+[data-tema="skog"] {
+  --bg: #eef5e6; --yta: #fbfdf7; --text: #1f3320; --dämpad: #5d7259; --kant: #d3e3c3;
+  --accent: #3f8f3a; --accent-text: #ffffff; --andra: #b5651d;
+  --alt1: #a7c957; --alt2: #6a994e; --alt3: #bc6c25; --alt4: #dda15e; --alt5: #386641; --alt6: #e9c46a;
+  --ratt: #2f8f46; --ratt-bg: #dcf0dc; --fel: #c0392b; --fel-bg: #f8e1dd; --guld: #e0a800;
+  color-scheme: light;
+}
+[data-tema="rymd"] {
+  --bg: #12122b; --yta: #1f1f45; --text: #eef0ff; --dämpad: #a9acd6; --kant: #34346a;
+  --accent: #b388ff; --accent-text: #12122b; --andra: #5ce1e6;
+  --alt1: #ff6ec7; --alt2: #5ce1e6; --alt3: #b388ff; --alt4: #ffd166; --alt5: #7bf1a8; --alt6: #ff9f68;
+  --ratt: #5fd38a; --ratt-bg: #1d4031; --fel: #ff7b7b; --fel-bg: #4a2232; --guld: #ffd34d;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -35,6 +58,7 @@ body {
   padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
+  transition: background-color 0.3s;
 }
 main { max-width: 560px; margin: 0 auto; display: grid; gap: 16px; }
 h1 { font-size: 1.7rem; line-height: 1.2; margin: 0; text-wrap: balance; }
@@ -45,51 +69,92 @@ p { margin: 0; }
 .rad { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .mellan { justify-content: space-between; }
 .stapel { display: grid; gap: 10px; }
+.knapprad { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 
 button, .knapp {
   font: inherit; font-weight: 700; min-height: 52px; padding: 12px 18px;
-  border-radius: 14px; border: 2px solid var(--kant); background: var(--yta); color: var(--text);
+  border-radius: 16px; border: 2px solid var(--kant); background: var(--yta); color: var(--text);
   cursor: pointer; text-align: left; touch-action: manipulation;
+  transition: transform 0.08s;
 }
+button:active:not(:disabled) { transform: scale(0.97); }
 button.primär { background: var(--accent); border-color: var(--accent); color: var(--accent-text); text-align: center; }
-button.liten-knapp { min-height: 40px; padding: 6px 12px; font-size: 0.9rem; font-weight: 600; }
+button.stor { min-height: 64px; font-size: 1.25rem; }
+button.liten-knapp { justify-self: start; min-height: 40px; padding: 6px 12px; font-size: 0.9rem; font-weight: 600; }
 button.lyssna { min-width: 52px; text-align: center; font-size: 1.3rem; padding: 6px 10px; }
 button.diskret { justify-self: start; border-color: transparent; background: transparent; color: var(--dämpad); }
-button:disabled { opacity: 0.55; cursor: default; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--andra); outline-offset: 2px; }
+button:disabled { opacity: 0.6; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--andra); outline-offset: 2px; }
 
 input[type="text"], input[type="date"], select, textarea {
   font: inherit; padding: 12px; border-radius: 12px; border: 2px solid var(--kant);
-  background: var(--bg); color: var(--text); width: 100%;
+  background: var(--bg); color: var(--text); width: 100%; min-width: 0;
 }
 label { display: grid; gap: 4px; font-weight: 700; }
+details summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+details[open] summary { margin-bottom: 8px; }
 
+/* Profiler */
 .profil { display: flex; align-items: center; gap: 14px; width: 100%; }
 .avatar { font-size: 2rem; line-height: 1; }
+.rubrik-avatar { display: inline-block; font-size: 2.2rem; vertical-align: middle; }
 .avatarval { display: flex; flex-wrap: wrap; gap: 8px; }
 .avatarval button { font-size: 1.8rem; min-width: 56px; text-align: center; padding: 6px; }
 .avatarval button[aria-pressed="true"] { border-color: var(--accent); background: var(--bg); }
 
+/* Startsidan */
+.stjärnkort { width: 100%; text-align: left; }
+.övning { display: flex; align-items: center; gap: 14px; width: 100%; }
+.övning-ikon { font-size: 1.8rem; }
+.övning-text { display: grid; min-width: 0; }
+
+/* Övning */
 .fråga-text { font-size: 1.5rem; font-weight: 800; line-height: 1.3; text-wrap: balance; }
 .alternativ { display: grid; gap: 10px; }
-.alternativ button { font-size: 1.2rem; font-weight: 700; }
+.alternativ button { font-size: 1.2rem; font-weight: 700; border-left-width: 8px; }
+.alternativ > :nth-child(6n+1) button { border-left-color: var(--alt1); }
+.alternativ > :nth-child(6n+2) button { border-left-color: var(--alt2); }
+.alternativ > :nth-child(6n+3) button { border-left-color: var(--alt3); }
+.alternativ > :nth-child(6n+4) button { border-left-color: var(--alt4); }
+.alternativ > :nth-child(6n+5) button { border-left-color: var(--alt5); }
+.alternativ > :nth-child(6n+6) button { border-left-color: var(--alt6); }
 .alternativ button.rätt { background: var(--ratt-bg); border-color: var(--ratt); }
 .alternativ button.fel { background: var(--fel-bg); border-color: var(--fel); }
 .återkoppling { padding: 12px; border-radius: 12px; font-weight: 700; }
-.återkoppling.rätt { background: var(--ratt-bg); color: var(--text); }
+.återkoppling.rätt { background: var(--ratt-bg); color: var(--text); animation: studs 0.35s; }
 .återkoppling.fel { background: var(--fel-bg); color: var(--text); }
 .källa { font-weight: 400; font-style: italic; margin-top: 6px; }
+.mätare { height: 12px; background: var(--kant); border-radius: 999px; overflow: hidden; }
+.mätare > div { height: 100%; background: var(--andra); border-radius: 999px; transition: width 0.3s; }
+.mätare.guld > div { background: var(--guld); }
+.nivå { font-size: 0.85rem; color: var(--dämpad); }
+
+/* Resultat och album */
+.stjärnor { font-size: 2.6rem; letter-spacing: 0.1em; text-align: center; }
+.nytt-klistermärke { text-align: center; width: 100%; border-color: var(--guld); }
+.studs { display: inline-block; font-size: 2.4rem; animation: studs 0.6s 0.2s both; }
+.albumrutnät { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 10px; }
+.klistermärke {
+  position: relative; aspect-ratio: 1; display: grid; place-items: center; font-size: 2.4rem;
+  background: var(--yta); border: 2px solid var(--kant); border-radius: 18px;
+}
+.klistermärke.tomt { font-size: 1.4rem; color: var(--dämpad); border-style: dashed; background: transparent; }
+.klistermärke .antal { position: absolute; right: 6px; bottom: 2px; font-size: 0.8rem; font-weight: 700; color: var(--dämpad); }
+
+/* Egna glosor */
+.glosrad { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+.glosrad .lyssna { min-height: 44px; min-width: 44px; font-size: 1rem; }
+
+/* Håll in för att ta bort */
 button.håll { position: relative; overflow: hidden; border-color: var(--fel); color: var(--fel); text-align: center; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .håll-text { position: relative; }
 .håll-fyllning { position: absolute; inset: 0; width: 0; background: var(--fel-bg); }
 button.håll.håller .håll-fyllning { width: 100%; transition: width 2s linear; }
-.mätare { height: 10px; background: var(--kant); border-radius: 999px; overflow: hidden; }
-.mätare > div { height: 100%; background: var(--andra); }
-.stjärnor { font-size: 2.6rem; letter-spacing: 0.1em; text-align: center; }
-.album { display: flex; flex-wrap: wrap; gap: 8px; font-size: 2rem; }
-.nivå { font-size: 0.85rem; color: var(--dämpad); }
+
 .kod { font-family: ui-monospace, Menlo, monospace; font-size: 0.75rem; word-break: break-all; }
 .ok { color: var(--ratt); font-weight: 700; }
 .inte-ok { color: var(--fel); font-weight: 700; }
-ul.lista { margin: 0; padding-left: 20px; }
+ul.lista, ol.lista { margin: 0; padding-left: 20px; }
+
+@keyframes studs { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
