@@ -115,14 +115,21 @@
 
     <section aria-labelledby="h-mat">
       <h2 id="h-mat">2. Material</h2>
-      <label for="filer">Foton, PDF eller Word
+      <label for="filer"><span id="filer-rubrik">Foton, PDF eller Word</span>
         <input id="filer" type="file" multiple accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
       </label>
       <ul class="filer liten" id="fillista"></ul>
+      <div id="sammanfattning-rad" hidden style="display:grid;gap:4px">
+        <label for="filer-sam">📝 Lärarens sammanfattning (om du har den)
+          <input id="filer-sam" type="file" multiple accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+        </label>
+        <ul class="filer liten" id="fillista-sam"></ul>
+        <p class="liten">Kommer sammanfattningen senare? Lägg till den under 📚 Mina läxor när du har den.</p>
+      </div>
       <label for="klistra">…eller klistra in text
         <textarea id="klistra" placeholder="hund – dog&#10;katt – cat"></textarea>
       </label>
-      <p class="liten">Högst 10 sidor per material.</p>
+      <p class="liten" id="sidgräns">Högst 10 sidor per gång.</p>
     </section>
 
     <section aria-labelledby="h-skapa">
@@ -208,14 +215,18 @@ function uppdateraFormulär() {
   $("språk-rad").hidden = !glosor;
   $("annat-rad").hidden = !glosor || $("språk").value !== "annat";
   $("upptäckare-rad").hidden = glosor;
+  $("sammanfattning-rad").hidden = glosor;
+  $("filer-rubrik").textContent = glosor ? "Foton, PDF eller Word" : "📖 Boksidor: foton, PDF eller Word";
 }
 document.querySelectorAll('input[name="typ"]').forEach((r) => r.addEventListener("change", uppdateraFormulär));
 $("språk").addEventListener("change", uppdateraFormulär);
 uppdateraFormulär();
 
-$("filer").addEventListener("change", () => {
-  $("fillista").replaceChildren(...[...$("filer").files].map((f) => h("li", {}, `${f.name} (${Math.round(f.size / 1024)} kB)`)));
+const visaFiler = (input, lista) => input.addEventListener("change", () => {
+  lista.replaceChildren(...[...input.files].map((f) => h("li", {}, `${f.name} (${Math.round(f.size / 1024)} kB)`)));
 });
+visaFiler($("filer"), $("fillista"));
+visaFiler($("filer-sam"), $("fillista-sam"));
 
 // ---------- Filer till bilder och text ----------
 const BILDTYPER = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -251,32 +262,42 @@ async function pdfTillBilder(fil, plats) {
   return { bilder, hoppadeÖver: pdf.numPages - antal };
 }
 
-async function samlaIn() {
+// Läser filer till bilder (foton, PDF-sidor) och text (Word). maxSidor gäller bilderna.
+async function samlaIn(filer, klistrad = "", maxSidor = MAX_SIDOR) {
   const bilder = [];
   const texter = [];
   const varningar = [];
-  for (const f of $("filer").files) {
+  for (const f of filer) {
     const namn = f.name.toLowerCase();
     if (f.type === "application/pdf" || namn.endsWith(".pdf")) {
       if (!bildgräns) throw new Error("Den här vyn kan inte skicka bilder till Claude, så PDF går inte här.");
-      const { bilder: b, hoppadeÖver } = await pdfTillBilder(f, MAX_SIDOR - bilder.length);
+      const { bilder: b, hoppadeÖver } = await pdfTillBilder(f, maxSidor - bilder.length);
       bilder.push(...b);
-      if (hoppadeÖver > 0) varningar.push(`${f.name}: ${hoppadeÖver} sidor togs inte med (max ${MAX_SIDOR}).`);
+      if (hoppadeÖver > 0) varningar.push(`${f.name}: ${hoppadeÖver} sidor togs inte med (max ${maxSidor}).`);
     } else if (namn.endsWith(".docx")) {
       const { value } = await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() });
       texter.push(value.trim());
     } else if (f.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|webp|gif)$/.test(namn)) {
       if (!bildgräns) throw new Error("Den här vyn kan inte skicka bilder till Claude.");
-      if (bilder.length >= MAX_SIDOR) { varningar.push(`${f.name} togs inte med (max ${MAX_SIDOR} sidor).`); continue; }
+      if (bilder.length >= maxSidor) { varningar.push(`${f.name} togs inte med (max ${maxSidor} sidor).`); continue; }
       bilder.push(BILDTYPER.includes(f.type) && f.size < 4e6 ? f : await tillJpeg(f));
     } else {
       varningar.push(`${f.name}: filtypen stöds inte.`);
     }
   }
-  const klistrad = $("klistra").value.trim();
-  if (klistrad) texter.push(klistrad);
+  if (klistrad.trim()) texter.push(klistrad.trim());
   return { bilder, text: texter.join("\n\n").slice(0, 60000), varningar };
 }
+
+// Skriver av bilderna och delar upp allt i stycken. prefix: "s" för boken, "t" för lärarens sammanfattning.
+async function läsInText(filer, klistrad, maxSidor, prefix, startNr, visaStatus) {
+  const { bilder, text, varningar } = await samlaIn(filer, klistrad, maxSidor);
+  if (!bilder.length && !text) return { stycken: [], sidor: 0, varningar };
+  const avskrift = [bilder.length ? await skrivAv(bilder, visaStatus) : "", text].filter(Boolean).join("\n\n");
+  const stycken = delaIStycken(avskrift).map((s, i) => ({ ...s, id: `${prefix}${startNr + i + 1}` }));
+  return { stycken, sidor: bilder.length, varningar };
+}
+const MAX_SIDOR_TOTALT = 30;
 
 // Delar upp en avskrift i stycken. Korta rader utan punkt blir rubrik till nästa stycke.
 function delaIStycken(rå) {
@@ -342,57 +363,109 @@ Svara ENDAST med JSON i exakt den här formen:
 }
 
 const numreradText = (stycken) => stycken.map((s) => `[${s.id}]${s.rubrik ? " " + s.rubrik + ":" : ""} ${s.text}`).join("\n\n");
+// Hela läxan som text till Claude: lärarens sammanfattning (om den finns) först, sedan boken.
+function läxText(bok, sam) {
+  return sam?.length
+    ? `LÄRARENS SAMMANFATTNING (det läraren säger är viktigast inför provet):\n${numreradText(sam)}\n\nBOKEN:\n${numreradText(bok)}`
+    : numreradText(bok);
+}
 
 const FRÅGEREGLER = (ålder) => `- Alla frågor ska kunna besvaras med texten. Hitta inte på fakta.
 - Blanda typerna "flerval" (cirka tre av fyra) och "santfalskt" (cirka en av fyra).
   - flerval: "fraga", "ratt" (rätt svar), "fel" (exakt 5 felaktiga men rimliga svar, ungefär lika långa som rätt svar).
   - santfalskt: "pastaende" och "sant" (true/false).
 - "niva": 1 för minnesfrågor (vem, vad, när), 2 för förståelsefrågor (varför, vad hände sedan). Ungefär två av tre ska vara nivå 1.
-- "stycke": id för stycket svaret finns i, till exempel "s3".
+- "stycke": id för stycket svaret finns i, till exempel "s3" eller "t2".
+- "prov": true om frågan handlar om något som står i lärarens sammanfattning, annars false. Finns ingen sammanfattning är det alltid false.
 - "kalla": den mening ur stycket (max 30 ord) som svaret bygger på, ordagrant.
 ${OSÄKER_REGEL}
 - Enkelt språk för ${ålder} år. Sprid frågorna över hela texten.`;
 
-function faktaInstruktion(ålder, stycken) {
-  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga inför ett prov. Här är texten, uppdelad i numrerade stycken:
+const FRÅGEFORM = `{"typ": "flerval", "fraga": "...", "ratt": "...", "fel": ["...","...","...","...","..."], "niva": 1, "stycke": "s1", "kalla": "...", "prov": false, "osaker": false}`;
+const fördelning = (antal, harSam) => harSam
+  ? `ungefär ${Math.round((antal * 2) / 3)} provfrågor ("prov": true) om det som står i lärarens sammanfattning, och resten bokfrågor ("prov": false) om sådant i boken som INTE står i sammanfattningen`
+  : `alla med "prov": false`;
+
+function faktaInstruktion(ålder, bok, sam) {
+  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga inför ett prov. Här är läxan, uppdelad i numrerade stycken:
 <<<
-${numreradText(stycken)}
+${läxText(bok, sam)}
 >>>
 
 Gör ett studiepaket på svenska:
 - "titel": kort titel, till exempel "Vikingatiden".
 - "sammanfattning": högst 120 ord, enkelt språk.
 - "begrepp": 5–15 viktiga ord ur texten med en kort förklaring (max 12 ord).
-- "fragor": exakt 30 frågor.
+- "fragor": exakt 30 frågor, ${fördelning(30, sam?.length)}.
 ${FRÅGEREGLER(ålder)}
 
 Svara ENDAST med JSON i exakt den här formen:
 {"titel": "...", "sammanfattning": "...", "begrepp": [{"ord": "...", "forklaring": "..."}],
- "fragor": [{"typ": "flerval", "fraga": "...", "ratt": "...", "fel": ["...","...","...","...","..."], "niva": 1, "stycke": "s1", "kalla": "...", "osaker": false},
-            {"typ": "santfalskt", "pastaende": "...", "sant": true, "niva": 1, "stycke": "s2", "kalla": "...", "osaker": false}]}`;
+ "fragor": [${FRÅGEFORM},
+            {"typ": "santfalskt", "pastaende": "...", "sant": true, "niva": 1, "stycke": "s2", "kalla": "...", "prov": false, "osaker": false}]}`;
 }
 
-function flerFrågorInstruktion(ålder, stycken, befintliga) {
-  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga inför ett prov. Här är texten, uppdelad i numrerade stycken:
+function flerFrågorInstruktion(ålder, m, befintliga) {
+  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga inför ett prov. Här är läxan, uppdelad i numrerade stycken:
 <<<
-${numreradText(stycken)}
+${läxText(m.text, m.provtext)}
 >>>
 
 Barnet har redan övat på de här frågorna:
 ${befintliga.map((f) => "- " + f).join("\n")}
 
-Gör exakt 15 NYA frågor om texten. De får inte fråga om samma sak som frågorna ovan. Leta efter detaljer och samband som inte har frågats om.
+Gör exakt 15 NYA frågor, ${fördelning(15, m.provtext?.length)}. De får inte fråga om samma sak som frågorna ovan. Leta efter detaljer och samband som inte har frågats om.
 ${FRÅGEREGLER(ålder)}
 
 Svara ENDAST med JSON i exakt den här formen:
-{"fragor": [{"typ": "flerval", "fraga": "...", "ratt": "...", "fel": ["...","...","...","...","..."], "niva": 1, "stycke": "s1", "kalla": "...", "osaker": false}]}`;
+{"fragor": [${FRÅGEFORM}]}`;
 }
 
-function upptäckarInstruktion(ålder, stycken, antal, redanKända) {
+function nyaSidorInstruktion(ålder, m, nya, befintliga) {
+  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga inför ett prov. Läxan har fått nya boksidor.
+${m.provtext?.length ? `Lärarens sammanfattning (det viktigaste inför provet):\n<<<\n${numreradText(m.provtext)}\n>>>\n` : ""}
+De NYA styckena ur boken:
+<<<
+${numreradText(nya)}
+>>>
+
+Barnet har redan de här frågorna:
+${befintliga.map((f) => "- " + f).join("\n")}
+
+Gör exakt 10 NYA frågor om de nya styckena. Sätt "prov": true på de frågor som handlar om något som också står i lärarens sammanfattning.
+${FRÅGEREGLER(ålder)}
+
+Svara ENDAST med JSON i exakt den här formen:
+{"fragor": [${FRÅGEFORM}]}`;
+}
+
+function provInstruktion(ålder, m, sam) {
+  return `Du hjälper ett barn i Sverige (${ålder} år) att plugga inför ett prov. Läraren har delat ut en sammanfattning av det som är viktigast inför provet.
+LÄRARENS SAMMANFATTNING:
+<<<
+${numreradText(sam)}
+>>>
+BOKEN:
+<<<
+${numreradText(m.text)}
+>>>
+
+Barnet har redan de här frågorna (id: fråga):
+${m.fragor.filter((f) => !f.prov).map((f) => `- ${f.id}: ${f.fraga || f.pastaende}`).join("\n")}
+
+1. "matchar": lista id för de befintliga frågor ovan som handlar om något som står i lärarens sammanfattning.
+2. "fragor": gör exakt 20 NYA provfrågor ("prov": true) om innehållet i lärarens sammanfattning, så att allt viktigt i den täcks. Fråga inte om samma sak som de frågor du listar i "matchar". "stycke" kan vara ett t-id (sammanfattningen) eller ett s-id (boken) där svaret står.
+${FRÅGEREGLER(ålder)}
+
+Svara ENDAST med JSON i exakt den här formen:
+{"matchar": ["f3", "f7"], "fragor": [{"typ": "flerval", "fraga": "...", "ratt": "...", "fel": ["...","...","...","...","..."], "niva": 1, "stycke": "t1", "kalla": "...", "prov": true, "osaker": false}]}`;
+}
+
+function upptäckarInstruktion(ålder, text, antal, redanKända) {
   return `Du hjälper ett barn i Sverige (${ålder} år) som redan kan sin läxa att lära sig lite MER än det som står i texten.
 Här är läxtexten:
 <<<
-${numreradText(stycken)}
+${text}
 >>>
 ${redanKända.length ? "\nBarnet har redan fått de här faktarutorna, upprepa dem inte:\n" + redanKända.map((f) => "- " + f).join("\n") + "\n" : ""}
 Gör ${antal} korta faktarutor med intressant kunskap som INTE står i texten men som hör ihop med textens ämnen, och en fråga om varje faktaruta.
@@ -421,7 +494,7 @@ function städaGlosor(svar) {
 
 function städaFrågor(lista, styckeIds) {
   return (Array.isArray(lista) ? lista : []).map((f) => {
-    const bas = { niva: f.niva === 2 ? 2 : 1, kalla: str(f.kalla), osaker: f.osaker === true,
+    const bas = { niva: f.niva === 2 ? 2 : 1, kalla: str(f.kalla), osaker: f.osaker === true, ...(f.prov === true && { prov: true }),
       ...(styckeIds?.has(f.stycke) && { stycke: f.stycke }), ...(Number.isInteger(f.fakta) && { fakta: f.fakta }) };
     if (f.typ === "santfalskt" && str(f.pastaende) && typeof f.sant === "boolean")
       return { typ: "santfalskt", pastaende: str(f.pastaende), sant: f.sant, ...bas };
@@ -441,7 +514,7 @@ function numrera(lista, prefix, befintliga) {
 function städaUpptäckare(svar, befintlig = { fakta: [], fragor: [] }) {
   const nyaFakta = numrera((Array.isArray(svar?.vistedu) ? svar.vistedu : []).map(str).filter(Boolean).map((text) => ({ text })), "v", befintlig.fakta);
   const nyaFrågor = städaFrågor(svar?.fragor).filter((f) => nyaFakta[f.fakta])
-    .map(({ fakta, stycke, kalla, osaker, ...f }) => ({ ...f, fakta: nyaFakta[fakta].id }));
+    .map(({ fakta, stycke, kalla, osaker, prov, ...f }) => ({ ...f, fakta: nyaFakta[fakta].id }));
   return { fakta: [...befintlig.fakta, ...nyaFakta], fragor: [...befintlig.fragor, ...numrera(nyaFrågor, "u", befintlig.fragor)] };
 }
 
@@ -489,11 +562,14 @@ $("skapa").addEventListener("click", async () => {
   const start = performance.now();
   try {
     visaStatus("Förbereder filerna…");
-    const { bilder, text, varningar } = await samlaIn();
-    if (!bilder.length && !text) throw new Error("Välj en fil eller klistra in text först.");
-    const bas = { v: 2, id: crypto.randomUUID().slice(0, 8), typ, skapad: new Date().toISOString().slice(0, 10), ålder };
+    const bas = { v: 3, id: crypto.randomUUID().slice(0, 8), typ, skapad: new Date().toISOString().slice(0, 10), ålder };
+    let varningar = [];
 
     if (typ === "glosor") {
+      const insamlat = await samlaIn($("filer").files, $("klistra").value);
+      const { bilder, text } = insamlat;
+      varningar = insamlat.varningar;
+      if (!bilder.length && !text) throw new Error("Välj en fil eller klistra in text först.");
       const språk = språkInfo();
       const perGång = bildgräns?.maxCount ?? 1;
       const delar = [];
@@ -508,22 +584,28 @@ $("skapa").addEventListener("click", async () => {
         const k = (g.sv + "|" + g.ut).toLowerCase(); if (sett.has(k)) return false; sett.add(k); return true; });
       material = { ...bas, titel: delar[0].titel || "Glosor", språk: { från: "sv", till: språk.kod, namn: språk.namn }, glosor: numrera(glosor, "g", []) };
     } else {
-      // Faktatext: skriv av allt först, gör sedan frågor (och Upptäckare) av hela texten samtidigt.
-      const avskrift = [bilder.length ? await skrivAv(bilder, visaStatus) : "", text].filter(Boolean).join("\n\n");
-      const stycken = delaIStycken(avskrift);
-      if (!stycken.length) throw new Error("Det gick inte att läsa någon text ur materialet.");
+      // Faktatext: skriv av boksidorna (och lärarens sammanfattning) först, gör sedan frågor av allt samtidigt.
+      if (!$("filer").files.length && !$("klistra").value.trim()) throw new Error("Välj boksidor eller klistra in text först.");
+      const bok = await läsInText($("filer").files, $("klistra").value, MAX_SIDOR, "s", 0, visaStatus);
+      const sam = $("filer-sam").files.length
+        ? await läsInText($("filer-sam").files, "", MAX_SIDOR_TOTALT - bok.sidor, "t", 0, (t) => visaStatus("Sammanfattningen: " + t))
+        : { stycken: [], sidor: 0, varningar: [] };
+      varningar = [...bok.varningar, ...sam.varningar];
+      if (!bok.stycken.length) throw new Error("Det gick inte att läsa någon text ur boksidorna.");
       const medUpptäckare = $("upptäckare").checked;
       visaStatus(medUpptäckare ? "Claude gör 30 frågor och 10 Upptäckar-frågor… Det tar ungefär en minut." : "Claude gör 30 frågor… Det tar ungefär en minut.");
       const [svar, upptäckarSvar] = await Promise.all([
-        fråga(faktaInstruktion(ålder, stycken)),
-        medUpptäckare ? fråga(upptäckarInstruktion(ålder, stycken, 10, [])) : null,
+        fråga(faktaInstruktion(ålder, bok.stycken, sam.stycken)),
+        medUpptäckare ? fråga(upptäckarInstruktion(ålder, läxText(bok.stycken, sam.stycken), 10, [])) : null,
       ]);
-      const ids = new Set(stycken.map((s) => s.id));
+      const ids = new Set([...bok.stycken, ...sam.stycken].map((s) => s.id));
       const fragor = städaFrågor(svar?.fragor, ids);
       if (!fragor.length) throw new Error("Claude kunde inte göra några frågor av materialet.");
       const begrepp = (Array.isArray(svar.begrepp) ? svar.begrepp : [])
         .map((b) => ({ ord: str(b.ord), forklaring: str(b.forklaring) })).filter((b) => b.ord && b.forklaring);
-      material = { ...bas, titel: str(svar.titel) || "Faktatext", text: stycken, sammanfattning: str(svar.sammanfattning),
+      material = { ...bas, titel: str(svar.titel) || "Faktatext", sidor: bok.sidor + sam.sidor,
+        text: bok.stycken, ...(sam.stycken.length && { provtext: sam.stycken }),
+        sammanfattning: str(svar.sammanfattning),
         begrepp: numrera(begrepp, "b", []), fragor: numrera(fragor, "f", []),
         ...(upptäckarSvar && { upptackare: städaUpptäckare(upptäckarSvar) }) };
     }
@@ -554,7 +636,7 @@ async function visaResultat() {
   } else {
     const u = material.upptackare;
     delar.push(
-      h("p", { class: "liten" }, `${material.text.length} stycken text · ${material.fragor.length} frågor · ${material.begrepp.length} begrepp${u ? ` · ${u.fragor.length} Upptäckar-frågor` : ""}`),
+      h("p", { class: "liten" }, `${material.sidor} sidor · ${material.fragor.length} frågor${material.provtext ? `, varav ${material.fragor.filter((f) => f.prov).length} provfrågor` : ""} · ${material.begrepp.length} begrepp${u ? ` · ${u.fragor.length} Upptäckar-frågor` : ""}`),
       h("p", {}, material.sammanfattning),
       h("details", {}, h("summary", {}, "Visa frågorna"),
         ...material.fragor.map((f, i) => { if (f.osaker) osäkra++; return frågaEl(f, i); })),
@@ -595,27 +677,49 @@ async function packa(obj) {
 }
 // Läxan skickas som ett meddelande med en läxkod, inte som en länk. iMessage visar inte
 // meddelanden med mycket långa länkar, och på iPhone öppnas länkar ändå i Safari i stället för i appen.
-const smsText = (m, kod) => `📚 Ny läxa: ${m.titel}\nHåll fingret på meddelandet och välj Kopiera. Öppna Studiehjälpen och tryck på 📋 Klistra in.\n\nLäxkod: ${kod}`;
+// En stor läxa delas upp i flera meddelanden. Appen samlar ihop delarna (Läxkod 1/2 grupp: …).
+const DEL_GRÄNS = 12000;
+const INSTRUKTION = "Håll fingret på meddelandet och välj Kopiera. Öppna Studiehjälpen och tryck på 📋 Klistra in.";
+function smsDelar(m, kod) {
+  if (kod.length <= DEL_GRÄNS) return [`📚 Ny läxa: ${m.titel}\n${INSTRUKTION}\n\nLäxkod: ${kod}`];
+  const antal = Math.ceil(kod.length / DEL_GRÄNS);
+  const grupp = Math.random().toString(36).slice(2, 6);
+  return Array.from({ length: antal }, (_, i) =>
+    `📚 Ny läxa: ${m.titel} (del ${i + 1} av ${antal})\n${INSTRUKTION} Gör så med alla ${antal} delarna.\n\nLäxkod ${i + 1}/${antal} ${grupp}: ${kod.slice(i * DEL_GRÄNS, (i + 1) * DEL_GRÄNS)}`);
+}
 
 // Safari kräver att kopieringen startar direkt i klicket. Med ClipboardItem kan texten
 // packas klart efteråt; annars faller vi tillbaka på writeText och sist på att visa texten.
+async function tillUrklipp(textLöfte, statusEl) {
+  try {
+    if (!window.ClipboardItem || !navigator.clipboard?.write) throw 0;
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": Promise.resolve(textLöfte).then((t) => new Blob([t], { type: "text/plain" })) })]);
+    return true;
+  } catch {}
+  const text = await textLöfte;
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch {
+    statusEl.hidden = false; statusEl.classList.remove("fel");
+    statusEl.replaceChildren("Kunde inte kopiera automatiskt. Markera och kopiera:", h("p", { class: "kod" }, text));
+    return false;
+  }
+}
 function kopieraKnapp(hämtaMaterial, statusEl) {
-  const visa = (text) => { statusEl.hidden = false; statusEl.classList.remove("fel"); statusEl.textContent = text; };
   return async () => {
     const m = hämtaMaterial();
-    const textLöfte = packa(m).then((kod) => smsText(m, kod));
-    const klart = () => visa("Kopierat! Klistra in i ett sms till barnet.");
-    try {
-      if (!window.ClipboardItem || !navigator.clipboard?.write) throw 0;
-      await navigator.clipboard.write([new ClipboardItem({ "text/plain": textLöfte.then((t) => new Blob([t], { type: "text/plain" })) })]);
-      return klart();
-    } catch {}
-    const text = await textLöfte;
-    try { await navigator.clipboard.writeText(text); klart(); }
-    catch {
-      statusEl.hidden = false; statusEl.classList.remove("fel");
-      statusEl.replaceChildren("Kunde inte kopiera automatiskt. Markera och kopiera:", h("p", { class: "kod" }, text));
-    }
+    const delarLöfte = packa(m).then((kod) => smsDelar(m, kod));
+    if (!(await tillUrklipp(delarLöfte.then((d) => d[0]), statusEl))) return;
+    const delar = await delarLöfte;
+    statusEl.hidden = false; statusEl.classList.remove("fel");
+    if (delar.length === 1) return void (statusEl.textContent = "Kopierat! Klistra in i ett sms till barnet.");
+    // Flera delar: del 1 är redan kopierad. Varje del skickas som ett eget sms.
+    statusEl.replaceChildren(
+      h("p", {}, `Läxan är stor och skickas i ${delar.length} sms. Del 1 är kopierad – skicka den. Kopiera sedan nästa del och skicka den också.`),
+      h("div", { class: "rad" }, ...delar.map((text, i) => h("button", { onclick: async (e) => {
+        const knapp = e.currentTarget;
+        const ok = await tillUrklipp(text, statusEl);
+        if (ok) knapp.textContent = `✅ Del ${i + 1} kopierad`;
+      } }, i === 0 ? "✅ Del 1 kopierad" : `📋 Kopiera del ${i + 1}`))));
   };
 }
 $("kopiera").addEventListener("click", kopieraKnapp(() => material, $("kopiera-status")));
@@ -654,15 +758,16 @@ function läxDetalj(id, m) {
   const meddela = (text, fel = false) => { status.hidden = false; status.textContent = text; status.classList.toggle("fel", fel); };
   const kanFler = m.typ === "fakta" && Array.isArray(m.text);
   const knappar = [];
+  const kör = async (gör) => {
+    if (!sample) return meddela("Claude är inte tillgängligt här.", true);
+    knappar.forEach((b) => (b.disabled = true));
+    pågående = new AbortController();
+    try { await gör(); await sparaLäxa(m); meddela("Klart! Tryck på 📋 Kopiera för sms och skicka till barnet. Framstegen finns kvar i appen."); }
+    catch (e) { meddela(e?.code === "cancelled" ? "Avbrutet." : felText(e), e?.code !== "cancelled"); }
+    finally { knappar.forEach((b) => (b.disabled = false)); pågående = null; }
+  };
   const flerKnapp = (text, gör) => {
-    const k = h("button", { onclick: async () => {
-      if (!sample) return meddela("Claude är inte tillgängligt här.", true);
-      knappar.forEach((b) => (b.disabled = true));
-      pågående = new AbortController();
-      try { await gör(); await sparaLäxa(m); meddela("Klart! Tryck på 📋 Kopiera för sms och skicka till barnet. Framstegen finns kvar i appen."); }
-      catch (e) { meddela(e?.code === "cancelled" ? "Avbrutet." : felText(e), e?.code !== "cancelled"); }
-      finally { knappar.forEach((b) => (b.disabled = false)); pågående = null; }
-    } }, text);
+    const k = h("button", { onclick: () => kör(gör) }, text);
     knappar.push(k);
     return k;
   };
@@ -672,19 +777,60 @@ function läxDetalj(id, m) {
     try { await läxor.doc(id).delete(); öppenLäxa = null; öppenDetalj = null; } catch (e) { meddela(felText(e), true); }
   } }, "🗑️ Ta bort ur listan");
 
+  // En knapp som öppnar filväljaren och kör gör(filer) när filerna är valda.
+  const filKnapp = (text, gör) => {
+    const input = h("input", { type: "file", multiple: true, hidden: true, accept: "image/*,.pdf,application/pdf,.docx",
+      onchange: () => { if (input.files.length) kör(() => gör(input.files)); } });
+    const k = h("button", { onclick: () => { input.value = ""; input.click(); } }, text);
+    knappar.push(k);
+    return h("div", { style: "display:grid" }, k, input);
+  };
+  const ålder = m.ålder || 12;
+  const sidorKvar = () => MAX_SIDOR_TOTALT - (m.sidor ?? 0);
+  const allaIds = () => new Set([...m.text, ...(m.provtext ?? [])].map((s) => s.id));
+  const befintliga = () => m.fragor.map((f) => f.fraga || f.pastaende);
+  const nästaNr = (lista) => Math.max(0, ...(lista ?? []).map((s) => parseInt(s.id.slice(1), 10) || 0));
+  const antalProv = m.fragor?.filter((f) => f.prov).length ?? 0;
+
   return h("div", { class: "detalj" },
     h("button", { class: "primär", onclick: kopiera }, "📋 Kopiera för sms"),
-    kanFler ? flerKnapp("➕ 15 fler frågor om texten", async () => {
+    kanFler ? h("p", { class: "liten" }, `${m.sidor ?? "?"} av ${MAX_SIDOR_TOTALT} sidor · ${m.fragor.length} frågor${antalProv ? `, varav ${antalProv} provfrågor` : ""}${m.provtext ? " · har lärarens sammanfattning" : ""}`) : null,
+    kanFler ? filKnapp(m.provtext ? "📝 Lägg till mer av lärarens sammanfattning" : "📝 Lägg till lärarens sammanfattning", async (filer) => {
+      if (sidorKvar() <= 0) throw new Error(`Läxan har redan ${MAX_SIDOR_TOTALT} sidor, som är max.`);
+      const sam = await läsInText(filer, "", Math.min(MAX_SIDOR, sidorKvar()), "t", nästaNr(m.provtext), meddela);
+      if (!sam.stycken.length) throw new Error("Det gick inte att läsa någon text ur sammanfattningen.");
+      meddela("Claude gör provfrågor av sammanfattningen… Det tar ungefär en minut.");
+      const svar = await fråga(provInstruktion(ålder, m, sam.stycken));
+      const ids = new Set([...allaIds(), ...sam.stycken.map((s) => s.id)]);
+      const nya = städaFrågor(svar?.fragor, ids).map((f) => ({ ...f, prov: true }));
+      if (!nya.length) throw new Error("Claude kunde inte göra några provfrågor.");
+      const matchar = new Set(Array.isArray(svar.matchar) ? svar.matchar : []);
+      for (const f of m.fragor) if (matchar.has(f.id)) f.prov = true;
+      m.provtext = [...(m.provtext ?? []), ...sam.stycken];
+      m.sidor = (m.sidor ?? 0) + sam.sidor;
+      m.fragor.push(...numrera(nya, "f", m.fragor));
+    }) : null,
+    kanFler ? filKnapp("📖 Lägg till boksidor", async (filer) => {
+      if (sidorKvar() <= 0) throw new Error(`Läxan har redan ${MAX_SIDOR_TOTALT} sidor, som är max.`);
+      const bok = await läsInText(filer, "", Math.min(MAX_SIDOR, sidorKvar()), "s", nästaNr(m.text), meddela);
+      if (!bok.stycken.length) throw new Error("Det gick inte att läsa någon text ur sidorna.");
+      meddela("Claude gör frågor om de nya sidorna… Det tar ungefär en halv minut.");
+      const svar = await fråga(nyaSidorInstruktion(ålder, m, bok.stycken, befintliga()));
+      const nya = städaFrågor(svar?.fragor, new Set([...allaIds(), ...bok.stycken.map((s) => s.id)]));
+      m.text = [...m.text, ...bok.stycken];
+      m.sidor = (m.sidor ?? 0) + bok.sidor;
+      m.fragor.push(...numrera(nya, "f", m.fragor));
+    }) : null,
+    kanFler ? flerKnapp("➕ 15 fler frågor", async () => {
       meddela("Claude gör 15 nya frågor… Det tar ungefär en halv minut.");
-      const befintliga = m.fragor.map((f) => f.fraga || f.pastaende);
-      const svar = await fråga(flerFrågorInstruktion(m.ålder || 12, m.text, befintliga));
-      const nya = städaFrågor(svar?.fragor, new Set(m.text.map((s) => s.id)));
+      const svar = await fråga(flerFrågorInstruktion(ålder, m, befintliga()));
+      const nya = städaFrågor(svar?.fragor, allaIds());
       if (!nya.length) throw new Error("Claude kunde inte göra några nya frågor.");
       m.fragor.push(...numrera(nya, "f", m.fragor));
     }) : null,
     kanFler ? flerKnapp(m.upptackare ? "🌟 10 fler Upptäckar-frågor" : "🌟 Lägg till Upptäckar-frågor", async () => {
       meddela("Claude gör 10 Upptäckar-frågor… Det tar ungefär en halv minut.");
-      const svar = await fråga(upptäckarInstruktion(m.ålder || 12, m.text, 10, (m.upptackare?.fakta ?? []).map((v) => v.text)));
+      const svar = await fråga(upptäckarInstruktion(ålder, läxText(m.text, m.provtext), 10, (m.upptackare?.fakta ?? []).map((v) => v.text)));
       m.upptackare = städaUpptäckare(svar, m.upptackare);
     }) : null,
     m.typ === "fakta" && !kanFler ? h("p", { class: "liten" }, "Den här läxan skapades innan texten sparades. Skapa den igen för att kunna göra fler frågor.") : null,

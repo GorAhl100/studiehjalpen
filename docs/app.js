@@ -154,7 +154,10 @@ const appAdress = () => location.href.replace(/#.*$/, "");
 
 // Läxor och resultat skickas som ett meddelande med en kod, inte som en länk:
 // iMessage visar inte meddelanden med mycket långa länkar.
+// Svarar med koden som text, eller { del, av, grupp, bit } när en stor läxa kommer i flera meddelanden.
 function hittaKod(text) {
+  const del = text.match(/Läxkod (\d+)\/(\d+) ([a-z0-9]+):\s*([A-Za-z0-9_-]+)/);
+  if (del) return { del: Number(del[1]), av: Number(del[2]), grupp: del[3], bit: del[4] };
   const träff = text.match(/(?:Läxkod|Resultatkod|Kod):\s*([zj][A-Za-z0-9_-]+)/) || text.match(/#[mr]=([A-Za-z0-9_-]+)/);
   if (träff) return träff[1];
   const rå = text.trim();
@@ -183,6 +186,7 @@ function kortFör(m, läge = "text", pid = profil?.id) {
   const begrepp = (m.begrepp ?? []).filter((b) => !b.dold).map((b) => ({ nyckel: `${m.id}:${b.id}`, begrepp: b }));
   const upptäckare = (m.upptackare?.fragor ?? []).filter((f) => !f.dold).map((f) => ({ nyckel: `${m.id}:${f.id}`, fråga: f, upptäckare: true }));
   if (läge === "upptäckare") return upptäckare;
+  if (läge === "prov") return textkort.filter((k) => k.fråga.prov);
   if (läge === "alla") return [...textkort, ...begrepp, ...upptäckare];
   return [...textkort.slice(0, upplåstaAntal(m, pid)), ...(m.begrepp?.length > 1 ? begrepp : [])];
 }
@@ -194,12 +198,15 @@ function geId(m) {
 }
 
 // ---------- Upplåsning (faktatexter) ----------
-// Nivå 1-frågor (minnesfrågor) kommer först. 10 frågor åt gången låses upp när 70 % av de
-// upplåsta är minst "Kan nästan". Upptäckare öppnas när 80 % av alla textfrågor är "Kan!".
+// Provfrågor (från lärarens sammanfattning) kommer först, och inom dem nivå 1 (minnesfrågor) före
+// nivå 2. 10 frågor åt gången låses upp när 70 % av de upplåsta är minst "Kan nästan".
+// Upptäckare öppnas när 80 % av provfrågorna är "Kan!" (eller av alla frågor om det inte finns provfrågor).
 const PER_UPPLÅSNING = 10;
 function textFrågor(m) {
-  return (m.fragor ?? []).filter((f) => !f.dold).sort((a, b) => (a.niva ?? 1) - (b.niva ?? 1));
+  return (m.fragor ?? []).filter((f) => !f.dold)
+    .sort((a, b) => (b.prov ? 1 : 0) - (a.prov ? 1 : 0) || (a.niva ?? 1) - (b.niva ?? 1));
 }
+const provFrågor = (m) => textFrågor(m).filter((f) => f.prov);
 function andelPåNivå(m, frågor, nivå, pid) {
   if (!frågor.length) return 0;
   const f = framstegFör(pid);
@@ -211,7 +218,7 @@ function upplåstaAntal(m, pid) {
   while (n < alla.length && andelPåNivå(m, alla.slice(0, n), 2, pid) >= 0.7) n = Math.min(n + PER_UPPLÅSNING, alla.length);
   return n;
 }
-const upptäckarAndel = (m, pid) => andelPåNivå(m, textFrågor(m), 3, pid);
+const upptäckarAndel = (m, pid) => andelPåNivå(m, provFrågor(m).length ? provFrågor(m) : textFrågor(m), 3, pid);
 const upptäckareÖppen = (m, pid) => !!m.upptackare?.fragor?.length && upptäckarAndel(m, pid) >= 0.8;
 
 // Nya versioner av en övning (till exempel fler frågor) behåller barnets egna rättelser och dolda frågor.
@@ -293,7 +300,7 @@ function byggFråga(m, kort, nivå) {
   }
   const f = kort.fråga;
   // Var svaret står: ett stycke i läxtexten, eller en "Visste du att"-ruta för Upptäckare.
-  const stycke = m.text?.find((s) => s.id === f.stycke);
+  const stycke = [...(m.provtext ?? []), ...(m.text ?? [])].find((s) => s.id === f.stycke);
   const fakta = kort.upptäckare ? m.upptackare.fakta.find((v) => v.id === f.fakta) : null;
   const ursprung = { källa: f.kalla, stycke, fakta, upptäckare: kort.upptäckare };
   if (f.typ === "santfalskt") {
@@ -533,7 +540,9 @@ function vyMaterial(m) {
       h("p", {}, m.sammanfattning),
       m.begrepp?.length ? h("ul", { class: "lista" }, ...m.begrepp.map((b) => h("li", {}, h("strong", {}, b.ord), ` – ${b.forklaring}`))) : null) : null,
     h("div", { class: "kort" }, h("strong", {}, "Hur många frågor?"), val,
-      h("button", { class: "primär stor", onclick: () => vyÖva(m, antal === "∞" ? Infinity : Number(antal)) }, "Starta ▶")),
+      h("button", { class: "primär stor", onclick: () => vyÖva(m, antal === "∞" ? Infinity : Number(antal)) }, "Starta ▶"),
+      fakta && provFrågor(m).length ? h("button", { class: "stor provknapp", onclick: () => vyÖva(m, antal === "∞" ? Infinity : Number(antal), "prov") },
+        `📝 Bara provfrågor (${provFrågor(m).length})`) : null),
     fakta && m.upptackare?.fragor?.length ? upptäckarKort(m) : null,
     h("div", { class: "knapprad" },
       m.typ === "glosor" ? h("button", { onclick: () => vyRedigeraGlosor(m) }, "✏️ Ändra glosor") : null,
@@ -554,7 +563,7 @@ function upptäckarKort(m) {
     const andel = upptäckarAndel(m, profil.id);
     return h("div", { class: "kort upptäckare låst" },
       h("strong", {}, "🔒 🌟 Upptäckare"),
-      h("p", {}, "Extra kunskap som inte står i din text. Öppnas när du kan 80 % av frågorna 🦅."),
+      h("p", {}, `Extra kunskap som inte står i din text. Öppnas när du kan 80 % av ${provFrågor(m).length ? "provfrågorna" : "frågorna"} 🦅.`),
       h("div", { class: "mätare guld", "aria-label": `Du kan ${Math.round(andel * 100)} procent` }, h("div", { style: `width:${Math.min(100, (andel / 0.8) * 100)}%` })),
       h("span", { class: "liten" }, `Du kan ${Math.round(andel * 100)} % just nu.`));
   }
@@ -576,20 +585,30 @@ function vyVisteDu(m) {
   );
 }
 
+// Lärarens sammanfattning visas först (det viktigaste inför provet), sedan boken.
 function vyLäsText(m) {
   const högt = (s) => (s.rubrik ? `${s.rubrik}. ${s.text}` : s.text);
+  const styckeKort = (s, klass = "kort") => h("div", { class: klass, id: `stycke-${s.id}` },
+    s.rubrik ? h("h2", {}, s.rubrik) : null,
+    h("div", { class: "rad mellan", style: "flex-wrap:nowrap;align-items:flex-start" },
+      h("p", { class: s.text.startsWith("[") ? "lästext bildtext" : "lästext" }, s.text),
+      lyssnaKnapp(högt(s), "sv")));
+  const prov = m.provtext ?? [];
+  const tillbaka = () => { speechSynthesis?.cancel(); vyMaterial(m); };
   visa(
-    h("button", { class: "liten-knapp", onclick: () => { speechSynthesis?.cancel(); vyMaterial(m); } }, "← Tillbaka"),
+    h("button", { class: "liten-knapp", onclick: tillbaka }, "← Tillbaka"),
     h("h1", {}, `📖 ${m.titel}`),
     h("div", { class: "rad" },
-      h("button", { onclick: () => läsUppFlera(m.text.map(högt), "sv") }, "🔊 Läs upp allt"),
+      h("button", { onclick: () => läsUppFlera([...prov, ...m.text].map(högt), "sv") }, "🔊 Läs upp allt"),
       h("button", { class: "liten-knapp", onclick: () => speechSynthesis?.cancel() }, "⏹ Stoppa")),
-    ...m.text.map((s) => h("div", { class: "kort", id: `stycke-${s.id}` },
-      s.rubrik ? h("h2", {}, s.rubrik) : null,
-      h("div", { class: "rad mellan", style: "flex-wrap:nowrap;align-items:flex-start" },
-        h("p", { class: s.text.startsWith("[") ? "lästext bildtext" : "lästext" }, s.text),
-        lyssnaKnapp(högt(s), "sv")))),
-    h("button", { class: "primär stor", onclick: () => { speechSynthesis?.cancel(); vyMaterial(m); } }, "Klar, nu övar jag ▶"),
+    prov.length ? h("div", { class: "rad mellan" },
+      h("h2", { class: "avsnitt" }, "📝 Lärarens sammanfattning"),
+      h("button", { class: "liten-knapp", onclick: () => läsUppFlera(prov.map(högt), "sv") }, "🔊 Läs upp")) : null,
+    prov.length ? h("p", { class: "liten" }, "Det här är det viktigaste inför provet.") : null,
+    ...prov.map((s) => styckeKort(s, "kort provtext")),
+    prov.length ? h("h2", { class: "avsnitt" }, "📖 Boken") : null,
+    ...m.text.map((s) => styckeKort(s)),
+    h("button", { class: "primär stor", onclick: tillbaka }, "Klar, nu övar jag ▶"),
   );
 }
 
@@ -743,6 +762,7 @@ function vyÖva(m, totalt, läge = "text") {
       h("div", { class: "kort" },
         h("span", { class: "nivå" }, `${NIVÅER[nivå].ikon} ${NIVÅER[nivå].namn}`),
         q.upptäckare ? h("span", { class: "extra-märke" }, "🌟 Extra kunskap – står inte i din text") : null,
+        kort.fråga?.prov ? h("span", { class: "prov-märke" }, "📝 Provfråga") : null,
         h("div", { class: "rad mellan" }, h("p", { class: "fråga-text" }, q.text), lyssnaKnapp(q.upplästText, q.upplästSpråk)),
         h("div", { class: "alternativ" }, ...knappar.map((k, i) => h("div", { class: "rad", style: "flex-wrap:nowrap" },
           h("div", { style: "flex:1;min-width:0;display:grid" }, k), lyssnaKnapp(q.alternativ[i], q.svarsSpråk)))),
@@ -839,9 +859,21 @@ function vyKlistraIn() {
   const fält = h("textarea", { id: "kod", rows: 5, placeholder: "Klistra in meddelandet här" });
   const fel = h("p", { class: "inte-ok", hidden: true });
   const läggTill = async () => {
-    const kod = hittaKod(fält.value);
+    let kod = hittaKod(fält.value);
     try {
       if (!kod) throw new Error("ingen kod");
+      if (typeof kod === "object") {
+        // En del av en stor läxa: spara delen och vänta på resten.
+        const delar = ((lager.delar ??= {})[kod.grupp] ??= { av: kod.av, bitar: {} });
+        delar.bitar[kod.del] = kod.bit;
+        spara();
+        const klara = Object.keys(delar.bitar).length;
+        if (klara < kod.av) return vyDelKlar(klara, kod.av);
+        const { grupp, av } = kod;
+        kod = Array.from({ length: av }, (_, i) => delar.bitar[i + 1]).join("");
+        delete lager.delar[grupp];
+        spara();
+      }
       await hanteraPaket("?", kod);
     } catch { fel.hidden = false; fel.textContent = "Hittade ingen läxa i det du klistrade in. Kopiera hela meddelandet och försök igen."; }
   };
@@ -861,6 +893,16 @@ function vyKlistraIn() {
       h("div", { class: "stapel" },
         h("label", { for: "kod" }, "Tryck länge i rutan och välj Klistra in", fält),
         h("button", { onclick: läggTill }, "Lägg till"))),
+    h("button", { class: "liten-knapp", onclick: () => (profil ? vyHem() : vyStart()) }, "← Tillbaka"),
+  );
+}
+
+function vyDelKlar(klara, av) {
+  visa(
+    h("h1", {}, `✅ ${klara} av ${av} delar klara`),
+    h("p", {}, "Läxan kom i flera meddelanden. Gå tillbaka till meddelandena, kopiera nästa del och tryck på knappen igen."),
+    h("div", { class: "mätare" }, h("div", { style: `width:${(klara / av) * 100}%` })),
+    h("button", { class: "primär stor", onclick: vyKlistraIn }, "📋 Klistra in nästa del"),
     h("button", { class: "liten-knapp", onclick: () => (profil ? vyHem() : vyStart()) }, "← Tillbaka"),
   );
 }
@@ -960,7 +1002,10 @@ async function vyTestinfo() {
 const EXEMPEL_GLOSOR = { v: 1, id: "exempel-g", typ: "glosor", titel: "Exempel: spanska djur", språk: { från: "sv", till: "es", namn: "spanska" },
   glosor: [["hund", "el perro"], ["katt", "el gato"], ["häst", "el caballo"], ["ko", "la vaca"], ["fågel", "el pájaro"], ["fisk", "el pez"], ["mus", "el ratón"], ["gris", "el cerdo"]]
     .map(([sv, ut]) => ({ sv, ut, osaker: false })) };
-const EXEMPEL_FAKTA = { v: 2, id: "exempel-f", typ: "fakta", titel: "Exempel: vikingatiden", ålder: 12,
+const EXEMPEL_FAKTA = { v: 3, id: "exempel-f", typ: "fakta", titel: "Exempel: vikingatiden", ålder: 12, sidor: 3,
+  provtext: [
+    { id: "t1", rubrik: "Det här ska du kunna", text: "Vikingatiden var ungefär år 800 till 1050. Samhället bestod av jarlar, fria bönder och trälar. En träl var en slav." },
+  ],
   text: [
     { id: "s1", rubrik: "Vikingatiden", text: "Vikingatiden var ungefär år 800 till 1050. Vikingarna bodde i Norden, alltså i det som i dag är Sverige, Norge och Danmark. De flesta var bönder, men många var också handelsmän och ibland krigare." },
     { id: "s2", rubrik: "Samhället", text: "Högst upp i samhället stod hövdingarna, som kallades jarlar. De flesta människor var fria bönder. Längst ned fanns trälarna. En träl var en slav som inte fick bestämma över sitt eget liv." },
@@ -971,8 +1016,8 @@ const EXEMPEL_FAKTA = { v: 2, id: "exempel-f", typ: "fakta", titel: "Exempel: vi
   sammanfattning: "Vikingatiden var ungefär år 800 till 1050. Vikingarna bodde i Norden och var mest bönder, men också handelsmän och krigare. De reste långt med snabba skepp och skrev med runor på runstenar.",
   begrepp: [{ id: "b1", ord: "träl", forklaring: "en slav på vikingatiden" }, { id: "b2", ord: "runsten", forklaring: "en sten med inristad text" }, { id: "b3", ord: "jarl", forklaring: "en hövding på vikingatiden" }],
   fragor: [
-    { id: "f1", typ: "flerval", fraga: "Ungefär när var vikingatiden?", ratt: "800–1050", fel: ["500–700", "1200–1400", "1500–1600", "100–300", "1700–1800"], niva: 1, stycke: "s1", kalla: "Vikingatiden var ungefär år 800 till 1050." },
-    { id: "f2", typ: "flerval", fraga: "Vad kallades vikingarnas slavar?", ratt: "Trälar", fel: ["Jarlar", "Bönder", "Skalder", "Hövdingar", "Riddare"], niva: 1, stycke: "s2", kalla: "Längst ned fanns trälarna." },
+    { id: "f1", prov: true, typ: "flerval", fraga: "Ungefär när var vikingatiden?", ratt: "800–1050", fel: ["500–700", "1200–1400", "1500–1600", "100–300", "1700–1800"], niva: 1, stycke: "t1", kalla: "Vikingatiden var ungefär år 800 till 1050." },
+    { id: "f2", prov: true, typ: "flerval", fraga: "Vad kallades vikingarnas slavar?", ratt: "Trälar", fel: ["Jarlar", "Bönder", "Skalder", "Hövdingar", "Riddare"], niva: 1, stycke: "s2", kalla: "Längst ned fanns trälarna." },
     { id: "f3", typ: "santfalskt", pastaende: "Vikingarnas skepp kunde segla uppför floder.", sant: true, niva: 1, stycke: "s3", kalla: "skepp som kunde segla både på havet och uppför floder" },
     { id: "f4", typ: "santfalskt", pastaende: "Alla vikingar var krigare.", sant: false, niva: 2, stycke: "s1", kalla: "De flesta var bönder, men många var också handelsmän och ibland krigare." },
     { id: "f5", typ: "flerval", fraga: "Vad skrev vikingarna med?", ratt: "Runor", fel: ["Bläck", "Latinska bokstäver", "Bilder", "Siffror", "Knutar"], niva: 1, stycke: "s5", kalla: "Vikingarna skrev med runor." },

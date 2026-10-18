@@ -136,7 +136,11 @@ button.läsknapp { text-align: center; border-color: var(--andra); }
 .stycke-ruta { margin-top: 8px; font-weight: 400; }
 .stycke-ruta summary { font-weight: 700; }
 .extra-märke { justify-self: start; font-size: 0.85rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--guld); color: #22223b; }
+.prov-märke { justify-self: start; font-size: 0.85rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; border: 2px solid var(--accent); color: var(--text); }
 .kort.upptäckare { border-color: var(--guld); }
+.kort.provtext { border-color: var(--accent); border-left-width: 8px; }
+button.provknapp { text-align: center; border-color: var(--accent); color: var(--text); }
+h2.avsnitt { margin-top: 8px; }
 .kort.upptäckare.låst { border-style: dashed; }
 button.kort.upptäckare { text-align: left; width: 100%; }
 .kort.upplåst { animation: studs 0.5s; }
