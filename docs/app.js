@@ -308,9 +308,16 @@ function byggFråga(m, kort, nivå) {
       rätt: f.sant ? "Sant" : "Falskt", alternativ: ["Sant", "Falskt"], ...ursprung };
   }
   // Claudes felalternativ är redan rimliga, så här styr nivån bara antalet.
+  if (m.typ === "grammatik") {
+    // Grammatikövning: uppgiften på svenska, meningen på det språk som övas (eller svenska vid översättning).
+    const språk = m.språk?.till ?? "en";
+    return { text: f.fraga, mening: f.mening, upplästText: f.mening || f.fraga, upplästSpråk: f.mening && !f.oversatt ? språk : "sv",
+      svarsSpråk: språk, rätt: f.ratt, alternativ: väljAlternativ(f.ratt, f.fel, nivå, språk, false), förklaring: f.forklaring, stycke };
+  }
   return { text: f.fraga, upplästText: f.fraga, upplästSpråk: "sv", svarsSpråk: "sv",
     rätt: f.ratt, alternativ: väljAlternativ(f.ratt, f.fel, nivå, "sv", false), ...ursprung };
 }
+const TYPIKON = { glosor: "📘", grammatik: "✏️", fakta: "🌍" };
 
 // Lägre nivå och fler fel = större chans att komma.
 function väljKort(kortlista, pid, förra) {
@@ -407,7 +414,7 @@ function vyHem() {
     h("h2", {}, "Mina övningar"),
     lista.length
       ? h("div", { class: "stapel" }, ...lista.map((m) => h("button", { class: "övning", onclick: () => vyMaterial(m) },
-          h("span", { class: "övning-ikon" }, m.typ === "glosor" ? "📘" : "🌍"),
+          h("span", { class: "övning-ikon" }, TYPIKON[m.typ] ?? "🌍"),
           h("span", { class: "övning-text" }, h("strong", {}, m.titel), h("span", { class: "liten" }, sammanfattaFramsteg(m))))))
       : h("p", { class: "liten" }, "Inga övningar än. Skriv in egna glosor, öppna en länk från en förälder eller klistra in en kod."),
     h("div", { class: "knapprad" },
@@ -463,7 +470,7 @@ function sammanfattaFramsteg(m) {
   const kan = k.filter((x) => f[x.nyckel]?.nivå === 3).length;
   if (m.typ === "glosor") return `${k.length} glosor · ${kan} kan du 🦅`;
   const totalt = textFrågor(m).length, öppna = upplåstaAntal(m, profil.id);
-  return `${öppna < totalt ? `${öppna} av ${totalt}` : totalt} frågor · ${kan} kan du 🦅${upptäckareÖppen(m, profil.id) ? " · 🌟" : ""}`;
+  return `${öppna < totalt ? `${öppna} av ${totalt}` : totalt} ${m.typ === "grammatik" ? "övningar" : "frågor"} · ${kan} kan du 🦅${upptäckareÖppen(m, profil.id) ? " · 🌟" : ""}`;
 }
 
 function vyInställningar() {
@@ -531,7 +538,8 @@ function vyMaterial(m) {
   visa(
     h("button", { class: "liten-knapp", onclick: vyHem }, "← Tillbaka"),
     h("h1", {}, m.titel),
-    m.text?.length ? h("button", { class: "stor läsknapp", onclick: () => vyLäsText(m) }, "📖 Läs texten") : null,
+    m.typ === "grammatik" ? h("button", { class: "stor läsknapp", onclick: () => vyRegler(m) }, "📖 Regler") : null,
+    m.typ !== "grammatik" && m.text?.length ? h("button", { class: "stor läsknapp", onclick: () => vyLäsText(m) }, "📖 Läs texten") : null,
     h("div", { class: "kort" },
       h("div", { class: "rad" }, ...NIVÅER.map((n, i) => h("span", { class: "nivå" }, `${n.ikon} ${n.namn}: ${räkna(i)}`))),
       fakta && öppna < totalt ? h("p", { class: "liten" }, `🔓 ${öppna} av ${totalt} frågor är upplåsta. När du kan de flesta av dem låses fler upp.`) : null),
@@ -582,6 +590,25 @@ function vyVisteDu(m) {
     h("p", { class: "liten" }, "Det här står inte i din läxa. Det är extra kunskap för den som vill veta mer."),
     ...fakta.map((v) => h("div", { class: "kort upptäckare" }, h("div", { class: "rad mellan", style: "flex-wrap:nowrap" }, h("p", { class: "lästext" }, v.text), lyssnaKnapp(v.text, "sv")))),
     h("button", { class: "primär stor", onclick: () => vyÖva(m, 10, "upptäckare") }, "Öva Upptäckar-frågor ▶"),
+  );
+}
+
+// Grammatik: lärarens sammanfattning (om den finns) och reglerna som Claude har skrivit utifrån läxan.
+function vyRegler(m) {
+  const tillbaka = () => { speechSynthesis?.cancel(); vyMaterial(m); };
+  const prov = m.provtext ?? [];
+  visa(
+    h("button", { class: "liten-knapp", onclick: tillbaka }, "← Tillbaka"),
+    h("h1", {}, `📖 ${m.titel}`),
+    prov.length ? h("h2", { class: "avsnitt" }, "📝 Lärarens sammanfattning") : null,
+    ...prov.map((s) => h("div", { class: "kort provtext" },
+      s.rubrik ? h("h2", {}, s.rubrik) : null,
+      h("div", { class: "rad mellan", style: "flex-wrap:nowrap;align-items:flex-start" }, h("p", { class: "lästext" }, s.text), lyssnaKnapp(s.text, "sv")))),
+    prov.length ? h("h2", { class: "avsnitt" }, "Reglerna") : null,
+    ...(m.regler ?? []).map((r) => h("div", { class: "kort" },
+      r.rubrik ? h("h2", {}, r.rubrik) : null,
+      h("div", { class: "rad mellan", style: "flex-wrap:nowrap;align-items:flex-start" }, h("p", { class: "lästext" }, r.text), lyssnaKnapp(r.text, "sv")))),
+    h("button", { class: "primär stor", onclick: tillbaka }, "Klar, nu övar jag ▶"),
   );
 }
 
@@ -763,7 +790,9 @@ function vyÖva(m, totalt, läge = "text") {
         h("span", { class: "nivå" }, `${NIVÅER[nivå].ikon} ${NIVÅER[nivå].namn}`),
         q.upptäckare ? h("span", { class: "extra-märke" }, "🌟 Extra kunskap – står inte i din text") : null,
         kort.fråga?.prov ? h("span", { class: "prov-märke" }, "📝 Provfråga") : null,
-        h("div", { class: "rad mellan" }, h("p", { class: "fråga-text" }, q.text), lyssnaKnapp(q.upplästText, q.upplästSpråk)),
+        q.mening
+          ? [h("p", { class: "uppgift" }, q.text), h("div", { class: "rad mellan", style: "flex-wrap:nowrap" }, h("p", { class: "fråga-text" }, q.mening), lyssnaKnapp(q.upplästText, q.upplästSpråk))]
+          : h("div", { class: "rad mellan" }, h("p", { class: "fråga-text" }, q.text), lyssnaKnapp(q.upplästText, q.upplästSpråk)),
         h("div", { class: "alternativ" }, ...knappar.map((k, i) => h("div", { class: "rad", style: "flex-wrap:nowrap" },
           h("div", { style: "flex:1;min-width:0;display:grid" }, k), lyssnaKnapp(q.alternativ[i], q.svarsSpråk)))),
         åter, vidare),
@@ -785,6 +814,9 @@ function vyÖva(m, totalt, läge = "text") {
 
 // Vid fel svar: var svaret står. Ett citat och hela stycket ur texten, eller Upptäckarens faktaruta.
 function förklaring(q) {
+  if (q.förklaring) {
+    return [h("div", { class: "källa" }, h("div", { class: "rad mellan", style: "flex-wrap:nowrap" }, h("span", {}, `💡 ${q.förklaring}`), lyssnaKnapp(q.förklaring, "sv")))];
+  }
   if (q.upptäckare && q.fakta) {
     return [h("div", { class: "källa" }, h("div", { class: "rad mellan", style: "flex-wrap:nowrap" }, h("span", {}, `💡 ${q.fakta.text}`), lyssnaKnapp(q.fakta.text, "sv")))];
   }
@@ -927,8 +959,8 @@ function väljProfil(rubrik, beskrivning, medGäst, klar) {
 }
 
 function vyTaEmotMaterial(m) {
-  const antal = m.typ === "glosor" ? `${m.glosor.length} glosor` : `${m.fragor.length} frågor`;
-  väljProfil(`${m.typ === "glosor" ? "📘" : "🌍"} ${m.titel}`, `${antal}. Vem ska öva på det här?`, true, (p) => {
+  const antal = m.typ === "glosor" ? `${m.glosor.length} glosor` : `${m.fragor.length} ${m.typ === "grammatik" ? "övningar" : "frågor"}`;
+  väljProfil(`${TYPIKON[m.typ] ?? "🌍"} ${m.titel}`, `${antal}. Vem ska öva på det här?`, true, (p) => {
     const lista = materialFör(p.id);
     m = geId(structuredClone(m));
     const finns = lista.findIndex((x) => x.id === m.id);
@@ -994,7 +1026,8 @@ async function vyTestinfo() {
     h("div", { class: "kort" },
       h("strong", {}, "Prova utan att vänta på en förälder"),
       h("button", { onclick: () => vyTaEmotMaterial(EXEMPEL_GLOSOR) }, "Lägg till exempelglosor (spanska)"),
-      h("button", { onclick: () => vyTaEmotMaterial(EXEMPEL_FAKTA) }, "Lägg till exempelfakta (vikingar)")),
+      h("button", { onclick: () => vyTaEmotMaterial(EXEMPEL_FAKTA) }, "Lägg till exempelfakta (vikingar)"),
+      h("button", { onclick: () => vyTaEmotMaterial(EXEMPEL_GRAMMATIK) }, "Lägg till exempelgrammatik (engelska)")),
     h("button", { class: "liten-knapp", onclick: () => (profil ? vyHem() : vyStart()) }, "← Tillbaka"),
   );
 }
@@ -1002,6 +1035,19 @@ async function vyTestinfo() {
 const EXEMPEL_GLOSOR = { v: 1, id: "exempel-g", typ: "glosor", titel: "Exempel: spanska djur", språk: { från: "sv", till: "es", namn: "spanska" },
   glosor: [["hund", "el perro"], ["katt", "el gato"], ["häst", "el caballo"], ["ko", "la vaca"], ["fågel", "el pájaro"], ["fisk", "el pez"], ["mus", "el ratón"], ["gris", "el cerdo"]]
     .map(([sv, ut]) => ({ sv, ut, osaker: false })) };
+const EXEMPEL_GRAMMATIK = { v: 3, id: "exempel-gr", typ: "grammatik", titel: "Exempel: engelska pronomen och verb", ålder: 9, sidor: 1,
+  språk: { från: "sv", till: "en", namn: "engelska" },
+  text: [{ id: "s1", text: "He is my brother. She likes cats. They play football." }],
+  regler: [
+    { rubrik: "Pronomen", text: "He betyder han, she betyder hon och they betyder de. Exempel: She is my sister." },
+    { rubrik: "Verb med -s", text: "Efter he, she och it lägger man till -s på verbet i presens. Exempel: He plays. She likes." },
+  ],
+  fragor: [
+    { id: "f1", typ: "flerval", fraga: "Välj rätt pronomen", mening: "___ is my brother.", ratt: "He", fel: ["She", "They", "Him"], forklaring: "Brother är en pojke, och då säger man he.", niva: 1, stycke: "s1" },
+    { id: "f2", typ: "flerval", fraga: "Välj rätt form av verbet", mening: "She ___ cats.", ratt: "likes", fel: ["like", "liking", "liked"], forklaring: "Efter she lägger man till -s: likes.", niva: 1, stycke: "s1" },
+    { id: "f3", typ: "flerval", fraga: "Översätt meningen", mening: "De spelar fotboll.", oversatt: true, ratt: "They play football.", fel: ["They plays football.", "He play football.", "Them play football."], forklaring: "They betyder de, och efter they har verbet inget -s.", niva: 2, stycke: "s1" },
+  ] };
+
 const EXEMPEL_FAKTA = { v: 3, id: "exempel-f", typ: "fakta", titel: "Exempel: vikingatiden", ålder: 12, sidor: 3,
   provtext: [
     { id: "t1", rubrik: "Det här ska du kunna", text: "Vikingatiden var ungefär år 800 till 1050. Samhället bestod av jarlar, fria bönder och trälar. En träl var en slav." },
