@@ -355,7 +355,6 @@ function vyNyProfil() {
   let avatar = AVATARER[0];
   const namn = h("input", { type: "text", id: "namn", autocomplete: "off" });
   const född = h("input", { type: "date", id: "fodd" });
-  const språk = h("select", { id: "sprak" }, h("option", { value: "en" }, "Engelska"), h("option", { value: "es" }, "Spanska"));
   const uppl = h("select", { id: "uppl" }, h("option", { value: "manuell" }, "När jag trycker på 🔊"), h("option", { value: "auto" }, "Automatiskt"));
   const tema = temaVäljare("tema", "sol");
   const val = h("div", { class: "avatarval" }, ...AVATARER.map((a) =>
@@ -369,13 +368,12 @@ function vyNyProfil() {
       h("label", { for: "namn" }, "Namn", namn),
       h("div", { class: "stapel" }, h("strong", {}, "Välj figur"), val),
       h("label", { for: "fodd" }, "Födelsedag", född),
-      h("label", { for: "sprak" }, "Glosspråk", språk),
       h("label", { for: "uppl" }, "Läs upp frågor", uppl),
       h("label", { for: "tema" }, "Färgtema", tema),
       fel,
       h("button", { class: "primär", onclick: () => {
         if (!namn.value.trim()) { fel.hidden = false; fel.textContent = "Skriv ett namn."; return; }
-        const p = { id: nyttId(), namn: namn.value.trim(), avatar, född: född.value || null, språk: språk.value, uppläsning: uppl.value, tema: tema.value, ljud: true };
+        const p = { id: nyttId(), namn: namn.value.trim(), avatar, född: född.value || null, uppläsning: uppl.value, tema: tema.value, ljud: true };
         lager.profiler.push(p); spara(); aktivera(p); vyHem();
       } }, "Skapa profil")),
     h("button", { class: "liten-knapp", onclick: vyStart }, "← Tillbaka"),
@@ -539,7 +537,7 @@ function vyMaterial(m) {
     h("button", { class: "liten-knapp", onclick: vyHem }, "← Tillbaka"),
     h("h1", {}, m.titel),
     m.typ === "grammatik" ? h("button", { class: "stor läsknapp", onclick: () => vyRegler(m) }, "📖 Regler") : null,
-    m.typ !== "grammatik" && m.text?.length ? h("button", { class: "stor läsknapp", onclick: () => vyLäsText(m) }, "📖 Läs texten") : null,
+    m.typ !== "grammatik" && (m.text?.length || m.provtext?.length) ? h("button", { class: "stor läsknapp", onclick: () => vyLäsText(m) }, "📖 Läs texten") : null,
     h("div", { class: "kort" },
       h("div", { class: "rad" }, ...NIVÅER.map((n, i) => h("span", { class: "nivå" }, `${n.ikon} ${n.namn}: ${räkna(i)}`))),
       fakta && öppna < totalt ? h("p", { class: "liten" }, `🔓 ${öppna} av ${totalt} frågor är upplåsta. När du kan de flesta av dem låses fler upp.`) : null),
@@ -626,15 +624,15 @@ function vyLäsText(m) {
     h("button", { class: "liten-knapp", onclick: tillbaka }, "← Tillbaka"),
     h("h1", {}, `📖 ${m.titel}`),
     h("div", { class: "rad" },
-      h("button", { onclick: () => läsUppFlera([...prov, ...m.text].map(högt), "sv") }, "🔊 Läs upp allt"),
+      h("button", { onclick: () => läsUppFlera([...prov, ...(m.text ?? [])].map(högt), "sv") }, "🔊 Läs upp allt"),
       h("button", { class: "liten-knapp", onclick: () => speechSynthesis?.cancel() }, "⏹ Stoppa")),
     prov.length ? h("div", { class: "rad mellan" },
       h("h2", { class: "avsnitt" }, "📝 Lärarens sammanfattning"),
       h("button", { class: "liten-knapp", onclick: () => läsUppFlera(prov.map(högt), "sv") }, "🔊 Läs upp")) : null,
     prov.length ? h("p", { class: "liten" }, "Det här är det viktigaste inför provet.") : null,
     ...prov.map((s) => styckeKort(s, "kort provtext")),
-    prov.length ? h("h2", { class: "avsnitt" }, "📖 Boken") : null,
-    ...m.text.map((s) => styckeKort(s)),
+    prov.length && m.text?.length ? h("h2", { class: "avsnitt" }, "📖 Boken") : null,
+    ...(m.text ?? []).map((s) => styckeKort(s)),
     h("button", { class: "primär stor", onclick: tillbaka }, "Klar, nu övar jag ▶"),
   );
 }

@@ -218,7 +218,7 @@ function vyPersonHem(p) {
       h("button", { "aria-label": `Ändra ${p.namn}`, onclick: () => vyPerson(p) }, "✏️ Ändra")),
     p.födelseår ? h("p", { class: "liten" }, `${ålderFör(p)} år`) : null,
     h("button", { class: "val", onclick: () => { ny = { person: p, filer: [], samFiler: [], klistrad: "", upptäckare: true, källa: "foto", antal: 15 }; vyTyp(); } },
-      h("strong", {}, "✨ Ny läxa"), h("span", { class: "liten" }, "Fotografera en läxa eller låt Claude hitta på glosor.")),
+      h("strong", {}, "✨ Ny läxa"), h("span", { class: "liten" }, "Fota eller välj fil, eller låt Claude hitta på glosor.")),
     h("button", { class: "val", onclick: () => vyLäxor(p) },
       h("strong", {}, `📚 Läxor (${antal})`), h("span", { class: "liten" }, antal ? "Skicka igen, lägg till sidor eller gör fler frågor." : "Här hamnar allt du skapar.")),
   );
@@ -281,7 +281,7 @@ function vyMaterial() {
   visa(
     h("button", { class: "länk", onclick: vyTyp }, "← Tillbaka"),
     h("p", { class: "stegrad" }, `Steg 2 av 2 · ${ny.person.emoji} ${ny.person.namn} · ${t.ikon} ${t.namn}`),
-    h("h1", {}, hittaPå ? "Låt Claude hitta på glosor" : "Fotografera läxan"),
+    h("h1", {}, hittaPå ? "Låt Claude hitta på glosor" : "Lägg till läxan"),
     ny.typ !== "fakta" ? h("div", { class: "kort" }, språkVäljare()) : null,
     ny.typ === "glosor" ? h("div", { class: "flikar" },
       h("button", { "aria-selected": String(!hittaPå), onclick: () => väljKälla("foto") }, "📷 Från läxan"),
@@ -291,14 +291,15 @@ function vyMaterial() {
       h("label", { for: "m-antal" }, "Hur många?", antal),
       h("p", { class: "liten" }, `Claude gör glosor som passar ${ny.person.namn}${ny.person.födelseår ? `, ${ålderFör(ny.person)} år` : ""}.`)) : null,
     hittaPå ? null : h("div", { class: "kort" },
-      filKnapp(ny.filer.length ? "📷 Lägg till fler sidor" : (ny.typ === "fakta" ? "📷 Fotografera boksidorna" : "📷 Fotografera sidorna"), ny.filer.length ? "" : "primär stor",
+      ny.typ !== "glosor" ? h("strong", {}, "📖 Läxans sidor") : null,
+      filKnapp(ny.filer.length ? "➕ Lägg till fler" : "📷 Fota eller välj fil", ny.filer.length ? "" : "primär stor",
         (f) => { ny.filer.push(...f); rita(); }),
-      ny.filer.length ? filRutor(ny.filer, rita) : h("p", { class: "liten" }, `Ta en bild per sida, högst ${MAX_SIDOR} sidor. Det går också att välja PDF eller Word.`),
+      ny.filer.length ? filRutor(ny.filer, rita) : h("p", { class: "liten" }, `Ta en bild per sida eller välj bilder, PDF eller Word. Högst ${MAX_SIDOR} sidor.${ny.typ !== "glosor" ? " Har ni bara lärarens sammanfattning går det bra att hoppa över det här." : ""}`),
       h("details", { open: ny.klistrad ? true : null }, h("summary", {}, "Har du texten i stället? Klistra in den"), h("div", { style: "margin-top:8px" }, klistra))),
     ny.typ !== "glosor" ? h("div", { class: "kort" },
       h("strong", {}, "📝 Lärarens sammanfattning"),
       h("p", { class: "liten" }, "Har barnet fått en sammanfattning inför provet? Lägg till den så blir frågorna om den provfrågor. Kommer den senare kan du lägga till den under 📚 Mina läxor."),
-      filKnapp(ny.samFiler.length ? "📷 Lägg till fler sidor" : "📷 Fotografera sammanfattningen", "", (f) => { ny.samFiler.push(...f); rita(); }),
+      filKnapp(ny.samFiler.length ? "➕ Lägg till fler" : "📷 Fota eller välj fil", "", (f) => { ny.samFiler.push(...f); rita(); }),
       ny.samFiler.length ? filRutor(ny.samFiler, rita) : null) : null,
     ny.typ === "fakta" ? h("div", { class: "kort" },
       h("label", { class: "kryss" }, h("input", { type: "checkbox", checked: ny.upptäckare ? true : null, onchange: (e) => { ny.upptäckare = e.target.checked; } }),
@@ -306,7 +307,7 @@ function vyMaterial() {
     fel,
     h("button", { class: "primär stor", onclick: () => {
       if (hittaPå && !(ny.önskemål ?? "").trim()) { fel.hidden = false; fel.textContent = "Skriv vad glosorna ska handla om."; return; }
-      if (!hittaPå && !ny.filer.length && !ny.klistrad.trim()) { fel.hidden = false; fel.textContent = "Fotografera minst en sida eller klistra in text först."; return; }
+      if (!hittaPå && !ny.filer.length && !ny.klistrad.trim() && !ny.samFiler.length) { fel.hidden = false; fel.textContent = "Lägg till läxans sidor, lärarens sammanfattning eller klistra in text först."; return; }
       if (ny.språk?.kod === "annat") { fel.hidden = false; fel.textContent = "Skriv vilket språk det är."; return; }
       skapa();
     } }, hittaPå ? "✨ Hitta på glosor" : "✨ Skapa läxan"),
@@ -474,14 +475,14 @@ Svara ENDAST med JSON i exakt den här formen:
 {"titel": "Engelska djur", "glosor": [{"sv": "hund", "ut": "dog", "osaker": false}]}`;
 }
 
-function hittaPåGlosorInstruktion(språk, ålder, önskemål, antal) {
+function hittaPåGlosorInstruktion(språk, ålder, önskemål, antal, befintliga = []) {
   return `Du hjälper ett barn i Sverige (${ålder} år) att plugga glosor mellan svenska och ${språk.namn}.
 En förälder vill att du hittar på glosor. Förälderns önskemål:
 <<<
 ${önskemål}
 >>>
-
-Gör exakt ${antal} glosor som passar önskemålet och barnets ålder. Regler:
+${befintliga.length ? `\nBarnet har redan de här glosorna. Ta INTE med dem igen:\n${befintliga.map((g) => `- ${g.sv} – ${g.ut}`).join("\n")}\n` : ""}
+Gör exakt ${antal} ${befintliga.length ? "NYA " : ""}glosor som passar önskemålet och barnets ålder. Regler:
 - Vanliga, användbara ord som barn i ${ålder}-årsåldern lär sig i skolan. Inga ovanliga eller vuxna ord.
 - Svenska skrivs utan artikel (hund, inte en hund).
 - Engelska substantiv skrivs utan artikel (dog).
@@ -496,11 +497,13 @@ Svara ENDAST med JSON i exakt den här formen:
 const numreradText = (stycken) => stycken.map((s) => `[${s.id}]${s.rubrik ? " " + s.rubrik + ":" : ""} ${s.text}`).join("\n\n");
 // Hela läxan som text till Claude: lärarens sammanfattning (om den finns) först, sedan boken.
 function läxText(bok, sam) {
-  return sam?.length
-    ? `LÄRARENS SAMMANFATTNING (det läraren säger är viktigast inför provet):\n${numreradText(sam)}\n\nBOKEN:\n${numreradText(bok)}`
-    : numreradText(bok);
+  if (!sam?.length) return numreradText(bok);
+  const delar = [`LÄRARENS SAMMANFATTNING (det läraren säger är viktigast inför provet):\n${numreradText(sam)}`];
+  if (bok?.length) delar.push(`BOKEN:\n${numreradText(bok)}`);
+  return delar.join("\n\n");
 }
-const fördelning = (antal, harSam) => harSam
+// Utan boksidor handlar allt om lärarens sammanfattning, och då är alla frågor provfrågor.
+const fördelning = (antal, harSam, harBok = true) => harSam && !harBok ? `alla med "prov": true` : harSam
   ? `ungefär ${Math.round((antal * 2) / 3)} med "prov": true om det som står i lärarens sammanfattning, och resten med "prov": false om sådant i boken som INTE står i sammanfattningen`
   : `alla med "prov": false`;
 
@@ -546,7 +549,7 @@ Gör ett studiepaket:
 ${grammatik
     ? `- "regler": 2–6 korta regler på svenska som förklarar grammatiken i läxan: "rubrik" och "text" (max 40 ord, med exempel på ${språk.namn}).`
     : `- "sammanfattning": högst 120 ord, enkelt språk.\n- "begrepp": 5–15 viktiga ord ur texten med en kort förklaring (max 12 ord).`}
-- "fragor": exakt 30 ${vad(typ)}, ${fördelning(30, sam?.length)}.
+- "fragor": exakt 30 ${vad(typ)}, ${fördelning(30, sam?.length, bok?.length)}.
 ${frågeRegler(typ, ålder, språk)}
 
 Svara ENDAST med JSON i exakt den här formen:
@@ -563,7 +566,7 @@ ${läxText(m.text, m.provtext)}
 Barnet har redan de här ${vad(m.typ)}:
 ${befintliga.map((f) => "- " + f).join("\n")}
 
-Gör exakt 15 NYA ${vad(m.typ)}, ${fördelning(15, m.provtext?.length)}. De får inte vara samma som de ovan. ${m.typ === "grammatik" ? "Variera meningarna och orden." : "Leta efter detaljer och samband som inte har frågats om."}
+Gör exakt 15 NYA ${vad(m.typ)}, ${fördelning(15, m.provtext?.length, m.text?.length)}. De får inte vara samma som de ovan. ${m.typ === "grammatik" ? "Variera meningarna och orden." : "Leta efter detaljer och samband som inte har frågats om."}
 ${frågeRegler(m.typ, m.ålder || 12, m.språk)}
 
 Svara ENDAST med JSON i exakt den här formen:
@@ -741,7 +744,7 @@ async function skapa(tvinga = false, förberett = null) {
           ? await läsInText(ny.samFiler, "", MAX_SIDOR_TOTALT - bok.sidor, "t", 0, (t) => visaArbete(steg, 0, "Lärarens sammanfattning: " + t))
           : { stycken: [], sidor: 0, varningar: [] };
         varningar = [...bok.varningar, ...sam.varningar];
-        if (!bok.stycken.length) throw new Error("Det gick inte att läsa någon text ur sidorna.");
+        if (!bok.stycken.length && !sam.stycken.length) throw new Error("Det gick inte att läsa någon text ur sidorna.");
       }
       if (typ === "glosor") {
         // Glosor av en text som redan är avskriven (efter att typen bytts).
@@ -766,7 +769,10 @@ async function skapa(tvinga = false, förberett = null) {
         } else {
           m.sammanfattning = str(svar.sammanfattning);
           m.begrepp = numrera((Array.isArray(svar.begrepp) ? svar.begrepp : []).map((b) => ({ ord: str(b.ord), forklaring: str(b.forklaring) })).filter((b) => b.ord && b.forklaring), "b", []);
-          if (upptäckarSvar) m.upptackare = städaUpptäckare(upptäckarSvar);
+          if (upptäckarSvar) {
+            const u = städaUpptäckare(upptäckarSvar);
+            if (u.fragor.length) m.upptackare = u;
+          }
         }
       }
     }
@@ -967,7 +973,7 @@ function läxDetalj(id, m) {
     if (!sample) return meddela("Claude är inte tillgängligt här.", true);
     knappar.forEach((b) => (b.disabled = true));
     pågående = new AbortController();
-    try { await gör(); await sparaLäxa(m); meddela("✅ Klart! Tryck på 📋 Kopiera för sms och skicka till barnet. Framstegen finns kvar i appen."); }
+    try { const resultat = await gör(); await sparaLäxa(m); meddela(`✅ ${resultat ?? "Klart!"} Tryck på 📋 Kopiera för sms och skicka till barnet. Framstegen finns kvar i appen.`); }
     catch (e) { meddela(e?.code === "cancelled" ? "Avbrutet." : felText(e), e?.code !== "cancelled"); }
     finally { knappar.forEach((b) => (b.disabled = false)); pågående = null; }
   };
@@ -988,8 +994,60 @@ function läxDetalj(id, m) {
     try { await samling.doc(id).delete(); öppenLäxa = null; öppenDetalj = null; } catch (e) { meddela(felText(e), true); }
   } }, "🗑️ Ta bort ur listan");
 
+  // Glosor: fler från foto, påhittade av Claude eller inskrivna för hand. Nya glosor får nya id,
+  // så att barnets framsteg på de gamla finns kvar när läxan skickas igen.
+  const glosor = m.typ === "glosor";
+  const glosSpråk = () => ({ kod: m.språk?.till ?? "en", namn: m.språk?.namn ?? "engelska" });
+  const läggTillGlosor = (nya) => {
+    const sett = new Set(m.glosor.map((g) => `${g.sv}|${g.ut}`.toLowerCase()));
+    const unika = nya.filter((g) => { const k = `${g.sv}|${g.ut}`.toLowerCase(); if (sett.has(k)) return false; sett.add(k); return true; });
+    if (!unika.length) throw new Error("Inga nya glosor – de fanns redan i läxan.");
+    m.glosor.push(...numrera(unika, "g", m.glosor));
+    return unika.length === 1 ? "1 ny glosa tillagd." : `${unika.length} nya glosor tillagda.`;
+  };
+  const önskemål = h("input", { type: "text", placeholder: "t.ex. fler djur – eller lämna tomt för samma ämne" });
+  const antal = h("select", {}, ...[5, 10, 15, 20].map((n) => h("option", { value: n }, `${n} glosor`)));
+  antal.value = "10";
+  const egna = h("textarea", { rows: 4, placeholder: "hund – dog\nkatt – cat" });
+
   return h("div", { class: "detalj" },
     h("button", { class: "primär stor", onclick: kopieraKnapp(() => m, status) }, "📋 Kopiera för sms"),
+    glosor ? h("p", { class: "liten" }, `${m.glosor.length} glosor · ${glosSpråk().namn}`) : null,
+    glosor ? filVal("📷 Fler glosor från foto eller fil", async (filer) => {
+      meddela("Claude läser…");
+      const { bilder, text } = await samlaIn(filer, "", MAX_SIDOR);
+      const perGång = bildgräns?.maxCount ?? 1;
+      const grupper = bilder.length ? Array.from({ length: Math.ceil(bilder.length / perGång) }, (_, i) => bilder.slice(i * perGång, (i + 1) * perGång)) : [null];
+      const nya = [];
+      for (const [i, grupp] of grupper.entries()) {
+        const svar = await fråga(glosInstruktion(glosSpråk(), m.ålder || 12, !!grupp, i === 0 ? text : "", true), grupp ?? undefined);
+        nya.push(...städaGlosor(svar).glosor);
+      }
+      return läggTillGlosor(nya);
+    }) : null,
+    glosor ? h("details", {},
+      h("summary", {}, "✨ Låt Claude hitta på fler"),
+      h("div", { class: "stapel", style: "margin-top:8px" },
+        h("label", {}, "Vad ska de handla om?", önskemål),
+        h("label", {}, "Hur många?", antal),
+        knapp("✨ Hitta på glosor", async () => {
+          meddela("Claude hittar på glosor…");
+          const ämne = önskemål.value.trim() || `Fler glosor i samma stil och på samma ämne som de som redan finns (läxan heter "${m.titel}").`;
+          const svar = await fråga(hittaPåGlosorInstruktion(glosSpråk(), m.ålder || 12, ämne, Number(antal.value), m.glosor));
+          return läggTillGlosor(städaGlosor(svar).glosor);
+        }))) : null,
+    glosor ? h("details", {},
+      h("summary", {}, "✏️ Skriv in glosor själv"),
+      h("div", { class: "stapel", style: "margin-top:8px" },
+        h("p", { class: "liten" }, "En glosa per rad, med streck, kolon eller likhetstecken emellan."),
+        egna,
+        h("button", { onclick: async () => {
+          const nya = egna.value.split("\n").map((rad) => rad.split(/\s*(?:\t|–|—|=|:|;|\s-\s)\s*/))
+            .filter((d) => d.length >= 2 && d[0].trim() && d[1].trim()).map((d) => ({ sv: d[0].trim(), ut: d.slice(1).join(" ").trim() }));
+          if (!nya.length) return meddela("Skriv minst en glosa, till exempel hund – dog.", true);
+          try { const text = läggTillGlosor(nya); await sparaLäxa(m); egna.value = ""; meddela(`✅ ${text} Tryck på 📋 Kopiera för sms och skicka till barnet.`); }
+          catch (e) { meddela(felText(e), true); }
+        } }, "Lägg till"))) : null,
     kanUtöka ? h("p", { class: "liten" }, `${m.sidor ?? "?"} av ${MAX_SIDOR_TOTALT} sidor · ${m.fragor.length} ${vad(m.typ)}${antalProv ? `, varav ${antalProv} provfrågor` : ""}${m.provtext ? " · har lärarens sammanfattning" : ""}`) : null,
     kanUtöka ? filVal(m.provtext ? "📝 Lägg till mer av lärarens sammanfattning" : "📝 Lägg till lärarens sammanfattning", async (filer) => {
       if (sidorKvar() <= 0) throw new Error(`Läxan har redan ${MAX_SIDOR_TOTALT} sidor, som är max.`);
