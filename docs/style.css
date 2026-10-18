@@ -54,6 +54,7 @@ button, .knapp {
 button.primär { background: var(--accent); border-color: var(--accent); color: var(--accent-text); text-align: center; }
 button.liten-knapp { min-height: 40px; padding: 6px 12px; font-size: 0.9rem; font-weight: 600; }
 button.lyssna { min-width: 52px; text-align: center; font-size: 1.3rem; padding: 6px 10px; }
+button.diskret { justify-self: start; border-color: transparent; background: transparent; color: var(--dämpad); }
 button:disabled { opacity: 0.55; cursor: default; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--andra); outline-offset: 2px; }
 

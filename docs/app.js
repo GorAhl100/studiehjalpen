@@ -82,11 +82,23 @@ const RÖSTSPRÅK = { sv: "sv-SE", en: "en-GB", es: "es-ES", tyska: "de-DE", fra
 let röster = [];
 function laddaRöster() { röster = speechSynthesis?.getVoices?.() ?? []; }
 if ("speechSynthesis" in window) { laddaRöster(); speechSynthesis.onvoiceschanged = laddaRöster; }
-function röstFör(kod) {
+// iPhone har många röster per språk, en del är skämtröster eller låter robotaktigt. De sorteras bort.
+const DÅLIGA_RÖSTER = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Junior|Kathy|Ralph|Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley)\b/i;
+const BRA_RÖSTER = /^(Daniel|Kate|Serena|Arthur|Martha|Samantha|Ava|Alex|Allison|Tom|Evan|Nathan|Zoe|Karen|Moira|Tessa|M[oó]nica|Paulina|Jorge|Marisol|Alva|Klara|Oskar)\b/i;
+function röstKandidater(kod) {
   const lang = RÖSTSPRÅK[kod] || kod;
   const prefix = lang.slice(0, 2).toLowerCase();
-  return röster.find((r) => r.lang === lang && r.localService) || röster.find((r) => r.lang === lang)
-      || röster.find((r) => r.lang.toLowerCase().startsWith(prefix)) || null;
+  const poäng = (r) => (r.lang.replace("_", "-") === lang ? 3 : 0)
+    + (/enhanced|premium|förbättrad|siri/i.test(r.name) ? 5 : 0)
+    + (BRA_RÖSTER.test(r.name) ? 4 : 0)
+    + (DÅLIGA_RÖSTER.test(r.name) ? -20 : 0)
+    + (r.localService ? 1 : 0);
+  return röster.filter((r) => r.lang.toLowerCase().startsWith(prefix)).sort((a, b) => poäng(b) - poäng(a));
+}
+function röstFör(kod) {
+  const vald = lager.inställningar.röster?.[kod];
+  const kandidater = röstKandidater(kod);
+  return kandidater.find((r) => r.voiceURI === vald) || kandidater[0] || null;
 }
 function läsUpp(text, kod) {
   if (!("speechSynthesis" in window)) return;
@@ -371,7 +383,7 @@ function vyÖva(m, totalt) {
         h("div", { class: "alternativ" }, ...knappar.map((k, i) => h("div", { class: "rad", style: "flex-wrap:nowrap" },
           h("div", { style: "flex:1;min-width:0;display:grid" }, k), lyssnaKnapp(q.alternativ[i], q.svarsSpråk)))),
         åter, vidare),
-      h("button", { class: "liten-knapp", onclick: () => vyRätta(m, kort, nästa) }, "⚠️ Det här verkar fel"),
+      h("button", { class: "liten-knapp diskret", onclick: () => vyRätta(m, kort, nästa) }, "✏️ Rätta"),
     );
     if (profil.uppläsning === "auto") läsUpp(q.upplästText, q.upplästSpråk);
   }
@@ -531,14 +543,23 @@ async function vyTestinfo() {
   const röstrader = ["sv", "en", "es"].map((k) => {
     const r = röstFör(k);
     const exempel = { sv: "Hej! Nu ska vi plugga.", en: "Hello! The dog is happy.", es: "¡Hola! El perro está contento." }[k];
-    return h("div", { class: "rad mellan" },
-      h("span", {}, `${{ sv: "Svenska", en: "Engelska", es: "Spanska" }[k]}: `, h("span", { class: r ? "ok" : "inte-ok" }, r ? r.name : "ingen röst hittad")),
-      h("button", { class: "liten-knapp", onclick: () => läsUpp(exempel, k) }, "🔊 Testa"));
+    const namn = { sv: "Svenska", en: "Engelska", es: "Spanska" }[k];
+    const kandidater = röstKandidater(k);
+    if (!kandidater.length) return h("p", {}, `${namn}: `, h("span", { class: "inte-ok" }, "ingen röst hittad"));
+    const val = h("select", { id: `röst-${k}`, onchange: () => {
+      (lager.inställningar.röster ??= {})[k] = val.value; spara(); läsUpp(exempel, k);
+    } }, ...kandidater.map((v) => h("option", { value: v.voiceURI }, `${v.name} (${v.lang})`)));
+    val.value = r.voiceURI;
+    return h("div", { class: "stapel" },
+      h("label", { for: `röst-${k}` }, namn, val),
+      h("button", { class: "liten-knapp", onclick: () => läsUpp(exempel, k) }, `🔊 Testa ${namn.toLowerCase()}`));
   });
   visa(
     h("h1", {}, "Testinfo"),
     h("div", { class: "kort" }, h("ul", { class: "lista" }, ...rader)),
-    h("div", { class: "kort" }, h("strong", {}, "Uppläsning"), ...röstrader),
+    h("div", { class: "kort" }, h("strong", {}, "Uppläsning"),
+      h("p", { class: "liten" }, "Välj den röst som låter bäst. Fler och bättre röster kan laddas ned i iPhone under Inställningar → Hjälpmedel → Uppläst innehåll → Röster."),
+      ...röstrader),
     h("div", { class: "kort" },
       h("strong", {}, "Prova utan att vänta på en förälder"),
       h("button", { onclick: () => vyTaEmotMaterial(EXEMPEL_GLOSOR) }, "Lägg till exempelglosor (spanska)"),
