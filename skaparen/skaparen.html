@@ -141,12 +141,9 @@
       </label>
       <p class="liten" id="osäker-info"></p>
       <div id="förhandsvisning"></div>
-      <div class="rad">
-        <button class="primär" id="kopiera-länk">Kopiera länk</button>
-        <button id="kopiera-kod">Kopiera kod</button>
-      </div>
+      <button class="primär" id="kopiera">📋 Kopiera för sms</button>
       <p class="status" id="kopiera-status" hidden></p>
-      <p class="liten" id="sparad-info">Klistra in länken i ett sms till barnet.</p>
+      <p class="liten">Klistra in i ett sms till barnet. Barnet håller fingret på meddelandet, väljer Kopiera och trycker på 📋 Klistra in i Studiehjälpen.</p>
     </section>
   </div>
 
@@ -160,11 +157,8 @@
 
   <section aria-labelledby="h-inst">
     <details>
-      <summary id="h-inst">Inställningar och testinfo</summary>
+      <summary id="h-inst">Testinfo</summary>
       <div style="display:grid;gap:12px;margin-top:12px">
-        <label for="appadress">Övningsappens adress
-          <input id="appadress" type="url" placeholder="https://…/studiehjalpen/">
-        </label>
         <p class="liten" id="diag">Kontrollerar…</p>
       </div>
     </details>
@@ -176,7 +170,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script>
 const MAX_SIDOR = 10;
-const STANDARDADRESS = "https://gorahl100.github.io/studiehjalpen/";
 const SPRÅKNAMN = { en: "engelska", es: "spanska" };
 const $ = (id) => document.getElementById(id);
 
@@ -197,12 +190,6 @@ function h(tagg, attr = {}, ...barn) {
   for (const b of barn.flat()) if (b !== null && b !== undefined && b !== false) el.append(b);
   return el;
 }
-
-// ---------- Inställningar ----------
-function läsInställning(nyckel) { try { return localStorage.getItem(nyckel) || ""; } catch { return ""; } }
-function sparaInställning(nyckel, värde) { try { localStorage.setItem(nyckel, värde); } catch {} }
-$("appadress").value = läsInställning("skaparen.appadress") || STANDARDADRESS;
-$("appadress").addEventListener("change", (e) => sparaInställning("skaparen.appadress", e.target.value.trim()));
 
 // ---------- Flikar ----------
 function visaFlik(vilken) {
@@ -606,15 +593,18 @@ async function packa(obj) {
   }
   return "j" + b64url(bytes);
 }
-const appadress = () => ($("appadress").value.trim() || STANDARDADRESS).replace(/#.*$/, "");
+// Läxan skickas som ett meddelande med en läxkod, inte som en länk. iMessage visar inte
+// meddelanden med mycket långa länkar, och på iPhone öppnas länkar ändå i Safari i stället för i appen.
+const smsText = (m, kod) => `📚 Ny läxa: ${m.titel}\nHåll fingret på meddelandet och välj Kopiera. Öppna Studiehjälpen och tryck på 📋 Klistra in.\n\nLäxkod: ${kod}`;
 
 // Safari kräver att kopieringen startar direkt i klicket. Med ClipboardItem kan texten
 // packas klart efteråt; annars faller vi tillbaka på writeText och sist på att visa texten.
-function kopieraKnappar(hämtaMaterial, statusEl) {
+function kopieraKnapp(hämtaMaterial, statusEl) {
   const visa = (text) => { statusEl.hidden = false; statusEl.classList.remove("fel"); statusEl.textContent = text; };
-  const kopiera = async (vad) => {
-    const textLöfte = packa(hämtaMaterial()).then((kod) => (vad === "länk" ? `${appadress()}#m=${kod}` : kod));
-    const klart = () => visa(vad === "länk" ? "Länken är kopierad. Klistra in den i ett sms." : "Koden är kopierad.");
+  return async () => {
+    const m = hämtaMaterial();
+    const textLöfte = packa(m).then((kod) => smsText(m, kod));
+    const klart = () => visa("Kopierat! Klistra in i ett sms till barnet.");
     try {
       if (!window.ClipboardItem || !navigator.clipboard?.write) throw 0;
       await navigator.clipboard.write([new ClipboardItem({ "text/plain": textLöfte.then((t) => new Blob([t], { type: "text/plain" })) })]);
@@ -627,11 +617,8 @@ function kopieraKnappar(hämtaMaterial, statusEl) {
       statusEl.replaceChildren("Kunde inte kopiera automatiskt. Markera och kopiera:", h("p", { class: "kod" }, text));
     }
   };
-  return { länk: () => kopiera("länk"), kod: () => kopiera("kod") };
 }
-const resultatKopiering = kopieraKnappar(() => material, $("kopiera-status"));
-$("kopiera-länk").addEventListener("click", resultatKopiering.länk);
-$("kopiera-kod").addEventListener("click", resultatKopiering.kod);
+$("kopiera").addEventListener("click", kopieraKnapp(() => material, $("kopiera-status")));
 
 // ---------- Mina läxor ----------
 async function sparaLäxa(m) {
@@ -663,7 +650,7 @@ function visaLäxor(snap = senasteSnap) {
 
 function läxDetalj(id, m) {
   const status = h("p", { class: "status", hidden: true });
-  const kop = kopieraKnappar(() => m, status);
+  const kopiera = kopieraKnapp(() => m, status);
   const meddela = (text, fel = false) => { status.hidden = false; status.textContent = text; status.classList.toggle("fel", fel); };
   const kanFler = m.typ === "fakta" && Array.isArray(m.text);
   const knappar = [];
@@ -672,7 +659,7 @@ function läxDetalj(id, m) {
       if (!sample) return meddela("Claude är inte tillgängligt här.", true);
       knappar.forEach((b) => (b.disabled = true));
       pågående = new AbortController();
-      try { await gör(); await sparaLäxa(m); meddela("Klart! Kopiera länken och skicka den till barnet. Framstegen finns kvar i appen."); }
+      try { await gör(); await sparaLäxa(m); meddela("Klart! Tryck på 📋 Kopiera för sms och skicka till barnet. Framstegen finns kvar i appen."); }
       catch (e) { meddela(e?.code === "cancelled" ? "Avbrutet." : felText(e), e?.code !== "cancelled"); }
       finally { knappar.forEach((b) => (b.disabled = false)); pågående = null; }
     } }, text);
@@ -686,9 +673,7 @@ function läxDetalj(id, m) {
   } }, "🗑️ Ta bort ur listan");
 
   return h("div", { class: "detalj" },
-    h("div", { class: "rad" },
-      h("button", { class: "primär", onclick: kop.länk }, "Kopiera länk"),
-      h("button", { onclick: kop.kod }, "Kopiera kod")),
+    h("button", { class: "primär", onclick: kopiera }, "📋 Kopiera för sms"),
     kanFler ? flerKnapp("➕ 15 fler frågor om texten", async () => {
       meddela("Claude gör 15 nya frågor… Det tar ungefär en halv minut.");
       const befintliga = m.fragor.map((f) => f.fraga || f.pastaende);

@@ -152,6 +152,24 @@ async function packaUpp(kod) {
 }
 const appAdress = () => location.href.replace(/#.*$/, "");
 
+// Läxor och resultat skickas som ett meddelande med en kod, inte som en länk:
+// iMessage visar inte meddelanden med mycket långa länkar.
+function hittaKod(text) {
+  const träff = text.match(/(?:Läxkod|Resultatkod|Kod):\s*([zj][A-Za-z0-9_-]+)/) || text.match(/#[mr]=([A-Za-z0-9_-]+)/);
+  if (träff) return träff[1];
+  const rå = text.trim();
+  return /^[zj][A-Za-z0-9_-]+$/.test(rå) ? rå : null;
+}
+async function skickaMeddelande(text, statusEl) {
+  statusEl.hidden = false;
+  if (navigator.share) {
+    try { await navigator.share({ text }); statusEl.textContent = "Skickat!"; return; }
+    catch (e) { if (e.name === "AbortError") { statusEl.hidden = true; return; } }
+  }
+  try { await navigator.clipboard.writeText(text); statusEl.textContent = "Kopierat! Klistra in i ett sms."; }
+  catch { statusEl.replaceChildren("Markera och kopiera texten:", h("p", { class: "kod" }, text)); }
+}
+
 // ---------- Övningsfrågor ----------
 // Varje material blir en lista "kort". Ett kort vet hur det ska ställas som fråga på en viss nivå.
 // Nyckeln bygger på glosans/frågans id, så att framstegen följer med när listan ändras.
@@ -578,21 +596,14 @@ function vyLäsText(m) {
 // Skickar en kopia av övningen som länk, till exempel från en förälders profil till ett barns telefon.
 async function vyDela(m) {
   const kopia = { ...m, glosor: m.glosor?.filter((g) => !g.dold), fragor: m.fragor?.filter((f) => !f.dold) };
-  const länk = appAdress() + "#m=" + (await packa(kopia));
+  const text = `📚 Ny läxa: ${m.titel}\nHåll fingret på meddelandet och välj Kopiera. Öppna Studiehjälpen och tryck på 📋 Klistra in.\n\nLäxkod: ${await packa(kopia)}`;
   const status = h("p", { class: "liten", hidden: true });
   visa(
     h("button", { class: "liten-knapp", onclick: () => vyMaterial(m) }, "← Tillbaka"),
     h("h1", {}, "📤 Skicka till någon"),
-    h("p", {}, `Skicka "${m.titel}" som en länk i ett sms. Den som öppnar länken får en egen kopia att öva på.`),
+    h("p", {}, `Skicka "${m.titel}" i ett sms. Den som får det kopierar meddelandet och trycker på 📋 Klistra in i Studiehjälpen.`),
     h("p", { class: "liten" }, "Framstegen följer inte med, bara själva övningen."),
-    navigator.share ? h("button", { class: "primär", onclick: async () => {
-      try { await navigator.share({ title: m.titel, url: länk }); } catch {}
-    } }, "📤 Dela") : null,
-    h("button", { onclick: async () => {
-      status.hidden = false;
-      try { await navigator.clipboard.writeText(länk); status.textContent = "Länken är kopierad. Klistra in den i ett sms."; }
-      catch { status.replaceChildren("Kopiera länken:", h("p", { class: "kod" }, länk)); }
-    } }, "📋 Kopiera länken"),
+    h("button", { class: "primär stor", onclick: () => skickaMeddelande(text, status) }, navigator.share ? "📤 Skicka" : "📋 Kopiera"),
     status,
   );
 }
@@ -773,14 +784,8 @@ function vyResultat(m, omgång, stjärnor, nya) {
     h("p", {}, "Skicka resultatet till din egen telefon så hamnar stjärnorna i din profil."),
     h("button", { class: "primär", onclick: async () => {
       const paket = { v: 1, typ: "resultat", id: nyttId(), stjärnor, nyaKan: omgång.nyaKan, logg: omgång.logg };
-      const länk = appAdress() + "#r=" + (await packa(paket));
-      skickaStatus.hidden = false;
-      if (navigator.share) {
-        try { await navigator.share({ title: "Mitt resultat", url: länk }); skickaStatus.textContent = "Skickat."; return; }
-        catch (e) { if (e.name === "AbortError") return; }
-      }
-      try { await navigator.clipboard.writeText(länk); skickaStatus.textContent = "Länken är kopierad. Klistra in den i ett sms till dig själv."; }
-      catch { skickaStatus.replaceChildren("Kopiera länken:", h("p", { class: "kod" }, länk)); }
+      const kod = await packa(paket);
+      await skickaMeddelande(`⭐ Mitt resultat från Studiehjälpen\nHåll fingret på meddelandet och välj Kopiera. Öppna Studiehjälpen på din egen telefon och tryck på 📋 Klistra in.\n\nResultatkod: ${kod}`, skickaStatus);
     } }, "📲 Det här var jag! Skicka till min telefon"),
     skickaStatus) : null;
   const fakta = m.typ !== "glosor";
@@ -831,26 +836,31 @@ function vyRätta(m, kort, fortsätt) {
 
 // ---------- Import av material och resultat ----------
 function vyKlistraIn() {
-  const fält = h("textarea", { id: "kod", rows: 5, placeholder: "Klistra in koden här" });
+  const fält = h("textarea", { id: "kod", rows: 5, placeholder: "Klistra in meddelandet här" });
   const fel = h("p", { class: "inte-ok", hidden: true });
   const läggTill = async () => {
-    const text = fält.value.trim();
-    const match = text.match(/#([mr])=([A-Za-z0-9_-]+)/);
+    const kod = hittaKod(fält.value);
     try {
-      if (match) await hanteraPaket(match[1], match[2]);
-      else await hanteraPaket("m", text);
-    } catch { fel.hidden = false; fel.textContent = "Koden gick inte att läsa. Kontrollera att hela koden kom med."; }
+      if (!kod) throw new Error("ingen kod");
+      await hanteraPaket("?", kod);
+    } catch { fel.hidden = false; fel.textContent = "Hittade ingen läxa i det du klistrade in. Kopiera hela meddelandet och försök igen."; }
   };
   const kanLäsaUrklipp = !!navigator.clipboard?.readText;
   visa(
-    h("h1", {}, "Klistra in"),
-    kanLäsaUrklipp ? h("button", { class: "primär", onclick: async () => {
+    h("h1", {}, "📋 Klistra in"),
+    h("ol", { class: "lista" },
+      h("li", {}, "Håll fingret på meddelandet med läxan och välj ", h("strong", {}, "Kopiera"), "."),
+      h("li", {}, "Kom tillbaka hit och tryck på den stora knappen.")),
+    kanLäsaUrklipp ? h("button", { class: "primär stor", onclick: async () => {
       try { fält.value = await navigator.clipboard.readText(); await läggTill(); }
       catch { fel.hidden = false; fel.textContent = "Kunde inte hämta det kopierade. Tryck länge i rutan nedan och välj Klistra in."; }
     } }, "📋 Klistra in det jag kopierade") : null,
-    h("div", { class: "kort" },
-      h("label", { for: "kod" }, "Kod eller länk", fält), fel,
-      h("button", { onclick: läggTill }, "Lägg till")),
+    fel,
+    h("details", {},
+      h("summary", {}, "Fungerar inte knappen?"),
+      h("div", { class: "stapel" },
+        h("label", { for: "kod" }, "Tryck länge i rutan och välj Klistra in", fält),
+        h("button", { onclick: läggTill }, "Lägg till"))),
     h("button", { class: "liten-knapp", onclick: () => (profil ? vyHem() : vyStart()) }, "← Tillbaka"),
   );
 }
