@@ -78,6 +78,10 @@ label { display: grid; gap: 4px; font-weight: 700; }
 .återkoppling.rätt { background: var(--ratt-bg); color: var(--text); }
 .återkoppling.fel { background: var(--fel-bg); color: var(--text); }
 .källa { font-weight: 400; font-style: italic; margin-top: 6px; }
+button.håll { position: relative; overflow: hidden; border-color: var(--fel); color: var(--fel); text-align: center; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.håll-text { position: relative; }
+.håll-fyllning { position: absolute; inset: 0; width: 0; background: var(--fel-bg); }
+button.håll.håller .håll-fyllning { width: 100%; transition: width 2s linear; }
 .mätare { height: 10px; background: var(--kant); border-radius: 999px; overflow: hidden; }
 .mätare > div { height: 100%; background: var(--andra); }
 .stjärnor { font-size: 2.6rem; letter-spacing: 0.1em; text-align: center; }

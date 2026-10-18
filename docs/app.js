@@ -186,7 +186,7 @@ function vyStart() {
       h("button", { class: "profil", onclick: () => { profil = GÄST; vyHem(); } }, h("span", { class: "avatar" }, GÄST.avatar), h("span", {}, "Gäst (lånad telefon)")),
       h("button", { class: "profil", onclick: () => vyNyProfil() }, h("span", { class: "avatar" }, "➕"), h("span", {}, "Ny profil"))),
     h("div", { class: "rad" },
-      h("button", { class: "liten-knapp", onclick: () => vyKlistraIn() }, "Klistra in kod"),
+      h("button", { class: "liten-knapp", onclick: () => vyKlistraIn() }, "📋 Klistra in"),
       h("button", { class: "liten-knapp", onclick: () => vyTestinfo() }, "Testinfo")),
   );
 }
@@ -245,7 +245,7 @@ function vyHem() {
           `${m.typ === "glosor" ? "📘" : "🌍"} ${m.titel}`, h("br"), h("span", { class: "liten" }, sammanfattaFramsteg(m)))))
       : h("p", { class: "liten" }, "Inga övningar än. Öppna en länk från en förälder eller klistra in en kod."),
     h("div", { class: "rad" },
-      h("button", { class: "liten-knapp", onclick: () => vyKlistraIn() }, "Klistra in kod"),
+      h("button", { class: "liten-knapp", onclick: () => vyKlistraIn() }, "📋 Klistra in"),
       profil === GÄST ? null : h("button", { class: "liten-knapp", onclick: () => vyInställningar() }, "Inställningar")),
   );
 }
@@ -265,8 +265,34 @@ function vyInställningar() {
     h("div", { class: "kort" },
       h("label", { for: "uppl2" }, "Läs upp frågor", uppl),
       h("button", { class: "primär", onclick: () => { profil.uppläsning = uppl.value; spara(); vyHem(); } }, "Spara")),
+    h("div", { class: "kort" },
+      h("strong", {}, "Ta bort profilen"),
+      h("p", { class: "liten" }, "Profilens övningar, framsteg och klistermärken försvinner också."),
+      hållInKnapp(`Håll in för att ta bort ${profil.namn}`, () => {
+        const id = profil.id;
+        lager.profiler = lager.profiler.filter((p) => p.id !== id);
+        delete lager.material[id]; delete lager.framsteg[id]; delete lager.belöning[id];
+        spara(); profil = null; vyStart();
+      })),
     h("button", { class: "liten-knapp", onclick: vyHem }, "← Tillbaka"),
   );
+}
+
+// En knapp som bara gör något om man håller inne den i 2 sekunder.
+function hållInKnapp(text, klar) {
+  const fyllning = h("span", { class: "håll-fyllning" });
+  const knapp = h("button", { class: "håll" }, fyllning, h("span", { class: "håll-text" }, text));
+  let timer = null;
+  const starta = (e) => {
+    e.preventDefault();
+    knapp.classList.add("håller");
+    timer = setTimeout(() => { knapp.classList.remove("håller"); klar(); }, 2000);
+  };
+  const avbryt = () => { clearTimeout(timer); knapp.classList.remove("håller"); };
+  knapp.addEventListener("pointerdown", starta);
+  ["pointerup", "pointerleave", "pointercancel"].forEach((t) => knapp.addEventListener(t, avbryt));
+  knapp.addEventListener("contextmenu", (e) => e.preventDefault());
+  return knapp;
 }
 
 function vyMaterial(m) {
@@ -417,18 +443,24 @@ function vyRätta(m, kort, fortsätt) {
 function vyKlistraIn() {
   const fält = h("textarea", { id: "kod", rows: 5, placeholder: "Klistra in koden här" });
   const fel = h("p", { class: "inte-ok", hidden: true });
+  const läggTill = async () => {
+    const text = fält.value.trim();
+    const match = text.match(/#([mr])=([A-Za-z0-9_-]+)/);
+    try {
+      if (match) await hanteraPaket(match[1], match[2]);
+      else await hanteraPaket("m", text);
+    } catch { fel.hidden = false; fel.textContent = "Koden gick inte att läsa. Kontrollera att hela koden kom med."; }
+  };
+  const kanLäsaUrklipp = !!navigator.clipboard?.readText;
   visa(
-    h("h1", {}, "Klistra in kod"),
+    h("h1", {}, "Klistra in"),
+    kanLäsaUrklipp ? h("button", { class: "primär", onclick: async () => {
+      try { fält.value = await navigator.clipboard.readText(); await läggTill(); }
+      catch { fel.hidden = false; fel.textContent = "Kunde inte hämta det kopierade. Tryck länge i rutan nedan och välj Klistra in."; }
+    } }, "📋 Klistra in det jag kopierade") : null,
     h("div", { class: "kort" },
       h("label", { for: "kod" }, "Kod eller länk", fält), fel,
-      h("button", { class: "primär", onclick: async () => {
-        const text = fält.value.trim();
-        const match = text.match(/#([mr])=([A-Za-z0-9_-]+)/);
-        try {
-          if (match) await hanteraPaket(match[1], match[2]);
-          else await hanteraPaket("m", text);
-        } catch { fel.hidden = false; fel.textContent = "Koden gick inte att läsa. Kontrollera att hela koden kom med."; }
-      } }, "Lägg till")),
+      h("button", { onclick: läggTill }, "Lägg till")),
     h("button", { class: "liten-knapp", onclick: () => (profil ? vyHem() : vyStart()) }, "← Tillbaka"),
   );
 }
@@ -529,10 +561,34 @@ const EXEMPEL_FAKTA = { v: 1, id: "exempel-f", typ: "fakta", titel: "Exempel: vi
   ] };
 
 // ---------- Start ----------
+// På iPhone öppnas sms-länkar i Safari, som har annan lagring än appen på hemskärmen.
+const iIphoneSafari = () => navigator.standalone === false;
+
+function vyÖppnaIAppen(slag, kod) {
+  const status = h("p", { class: "liten", hidden: true });
+  const hela = appAdress() + "#" + slag + "=" + kod;
+  visa(
+    h("h1", {}, "Öppna i Studiehjälpen"),
+    h("div", { class: "kort" },
+      h("ol", { class: "lista" },
+        h("li", {}, "Tryck på knappen nedan."),
+        h("li", {}, "Öppna Studiehjälpen från hemskärmen."),
+        h("li", {}, "Tryck på ", h("strong", {}, "Klistra in"), " och sedan ", h("strong", {}, "📋 Klistra in det jag kopierade"), ".")),
+      h("button", { class: "primär", onclick: async () => {
+        status.hidden = false;
+        try { await navigator.clipboard.writeText(hela); status.textContent = "Kopierat! Öppna appen från hemskärmen nu."; }
+        catch { status.replaceChildren("Kunde inte kopiera. Markera och kopiera texten:", h("p", { class: "kod" }, hela)); }
+      } }, "📋 Kopiera"),
+      status),
+    h("button", { class: "liten-knapp", onclick: () => hanteraPaket(slag, kod).catch(() => vyStart()) }, "Jag har inte appen på hemskärmen, lägg till här"),
+  );
+}
+
 async function hanteraLänk() {
   const m = location.hash.match(/^#([mr])=([A-Za-z0-9_-]+)$/);
   if (!m) return false;
   history.replaceState(null, "", location.pathname + location.search);
+  if (iIphoneSafari()) { vyÖppnaIAppen(m[1], m[2]); return true; }
   try { await hanteraPaket(m[1], m[2]); }
   catch { visa(h("h1", {}, "Länken gick inte att läsa"), h("p", {}, "Be om en ny länk, eller använd Klistra in kod."), h("button", { class: "primär", onclick: vyStart }, "OK")); }
   return true;

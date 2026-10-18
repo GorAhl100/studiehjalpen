@@ -1,5 +1,5 @@
 // Gör att appen fungerar utan internet. Öka VERSION när filerna ändras.
-const VERSION = "studie-v1";
+const VERSION = "studie-v2";
 const FILER = ["./", "./index.html", "./app.js", "./style.css", "./manifest.webmanifest", "./ikon.svg", "./ikon-180.png", "./ikon-512.png"];
 
 self.addEventListener("install", (e) => {
